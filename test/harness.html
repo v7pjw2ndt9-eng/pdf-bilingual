@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>段落重建测试台</title>
+<style>
+  body { font: 13px/1.6 ui-monospace, Menlo, monospace; margin: 16px; max-width: 1100px; }
+  h2 { font-size: 15px; margin: 20px 0 6px; }
+  .blk { border-left: 3px solid #ccc; padding: 3px 10px; margin: 6px 0; white-space: pre-wrap; }
+  .body { border-color: #3584e4; }
+  .heading { border-color: #e6a01e; font-weight: bold; }
+  .caption { border-color: #2ec27e; }
+  .skip { border-color: #ddd; color: #aaa; }
+  .meta { color: #888; font-size: 11px; }
+  #summary { background: #f4f4f8; padding: 10px 14px; border-radius: 8px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1 style="font-size:16px">段落重建测试台</h1>
+<div id="summary">加载中…</div>
+<div id="out"></div>
+
+<script type="module">
+import * as pdfjsLib from '../lib/pdf.mjs';
+import { analyzePage } from '../src/layout.js';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = '../lib/pdf.worker.mjs';
+
+const CASES = [
+  { name: '双栏 (BERT, ACL 格式)', url: 'two-col.pdf', pages: [1, 2, 4] },
+  { name: '单栏 (Transformer, NIPS 格式)', url: 'one-col.pdf', pages: [1, 3] },
+  { name: '带行号稿件 (用户实际在读的 bioRxiv 预印本)', url: 'user-paper.pdf', pages: [2, 3, 4] },
+];
+
+const out = document.getElementById('out');
+const report = [];
+window.RESULT = { cases: [] };
+
+for (const c of CASES) {
+  const doc = await pdfjsLib.getDocument({ url: c.url, cMapUrl: '../lib/cmaps/', cMapPacked: true }).promise;
+  const caseRes = { name: c.name, pages: [] };
+
+  for (const pn of c.pages) {
+    const page = await doc.getPage(pn);
+    const vp = page.getViewport({ scale: 1 });
+    const tc = await page.getTextContent();
+    const t0 = performance.now();
+    const a = analyzePage(tc, { width: vp.width, height: vp.height });
+    const ms = (performance.now() - t0).toFixed(1);
+
+    const kinds = {};
+    for (const b of a.blocks) kinds[b.kind] = (kinds[b.kind] || 0) + 1;
+    const bodies = a.blocks.filter((b) => b.kind === 'body');
+    const lens = bodies.map((b) => b.text.length).sort((x, y) => x - y);
+    const median = lens.length ? lens[lens.length >> 1] : 0;
+    // 「按行打断」的症状：大量段落只有一行
+    const oneLiners = bodies.filter((b) => b.lines.length === 1).length;
+    // 行号没摘干净的话，段落会以 "23 " 这种前缀开头
+    const numPrefix = a.blocks.filter((b) => /^\d{1,4}\s/.test(b.text)).length;
+
+    const info = {
+      page: pn, cols: a.cols.length, bands: a.bands.length,
+      blocks: a.blocks.length, kinds, medianBodyChars: median,
+      bodyBlocks: bodies.length, oneLineBodyBlocks: oneLiners, ms: +ms,
+    };
+    caseRes.pages.push(info);
+    report.push(`${c.name} p${pn}: ${a.cols.length}栏 ${a.blocks.length}块 ` +
+      `正文${bodies.length}(单行${oneLiners}) 中位${median}字符 残留行号${numPrefix} ${ms}ms`);
+
+    const h = document.createElement('h2');
+    h.textContent = `${c.name} — 第 ${pn} 页 · ${a.cols.length} 栏 · ${a.bands.length} 带 · ${a.blocks.length} 块 · ${ms}ms`;
+    out.append(h);
+    for (const b of a.blocks) {
+      const d = document.createElement('div');
+      d.className = 'blk ' + b.kind;
+      d.textContent = b.text;
+      const m = document.createElement('div');
+      m.className = 'meta';
+      m.textContent = `[${b.kind}] 栏${b.colIndex ?? '通'} ${b.lines.length}行 ${b.text.length}字符`;
+      d.prepend(m);
+      out.append(d);
+    }
+  }
+  window.RESULT.cases.push(caseRes);
+}
+
+/* ---- 合成行号稿件 ----------------------------------------------------
+   手头的 bioRxiv 样本都没打行号，碰不到那条代码路径。这里往一页干净的
+   单栏正文里注入页边距行号，构造出用户实际遇到的那种输入，再看段落
+   结构是否和注入前完全一致。 */
+{
+  const doc = await pdfjsLib.getDocument({ url: 'one-col.pdf' }).promise;
+  const page = await doc.getPage(3);
+  const vp = page.getViewport({ scale: 1 });
+  const tc = await page.getTextContent();
+  const dims = { width: vp.width, height: vp.height };
+
+  const before = analyzePage(tc, dims);
+
+  // 每条基线左边距上放一个递增数字，模仿 LaTeX lineno 宏包的产物
+  const real = tc.items.filter((i) => typeof i.str === 'string' && i.str.trim());
+  const textL = Math.min(...real.map((i) => i.transform[4]));
+  const baselines = [...new Set(real.map((i) => Math.round(i.transform[5])))].sort((a, b) => b - a);
+  const fake = baselines.map((y, k) => ({
+    str: String(k + 20),
+    transform: [10, 0, 0, 10, textL - 28, y],
+    width: 12, height: 10, fontName: 'g_d0_f1', hasEOL: false,
+  }));
+  const after = analyzePage({ items: [...tc.items, ...fake] }, dims);
+
+  const stat = (a) => {
+    const b = a.blocks.filter((x) => x.kind === 'body');
+    const lens = b.map((x) => x.text.length).sort((p, q) => p - q);
+    return {
+      body: b.length,
+      oneLine: b.filter((x) => x.lines.length === 1).length,
+      median: lens.length ? lens[lens.length >> 1] : 0,
+      numPrefix: a.blocks.filter((x) => /^\d{1,4}\s/.test(x.text)).length,
+    };
+  };
+  const s0 = stat(before), s1 = stat(after);
+  const same = s0.body === s1.body && s1.numPrefix === 0 && Math.abs(s0.median - s1.median) < 20;
+
+  report.push('');
+  report.push(`合成行号注入 (one-col p3，注入 ${fake.length} 个行号)`);
+  report.push(`  注入前: 正文${s0.body} 单行${s0.oneLine} 中位${s0.median} 残留行号${s0.numPrefix}`);
+  report.push(`  注入后: 正文${s1.body} 单行${s1.oneLine} 中位${s1.median} 残留行号${s1.numPrefix}`);
+  report.push(`  ${same ? '✓ 段落结构未被行号打散，行号已摘干净' : '✗ 行号仍在影响段落切分'}`);
+
+  const h = document.createElement('h2');
+  h.textContent = '合成行号注入 — 注入后的段落';
+  out.append(h);
+  for (const b of after.blocks) {
+    const d = document.createElement('div');
+    d.className = 'blk ' + b.kind;
+    d.textContent = `[${b.kind}] ${b.lines.length}行 ${b.text.length}字符\n${b.text}`;
+    out.append(d);
+  }
+  window.RESULT.synthetic = { before: s0, after: s1, pass: same };
+}
+
+document.getElementById('summary').textContent = report.join('\n');
+window.DONE = true;
+</script>
+</body>
+</html>

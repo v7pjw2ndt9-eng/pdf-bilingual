@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>阅读器渲染测试台</title>
+<link rel="stylesheet" href="../viewer/viewer.css">
+</head>
+<body>
+<script>
+// 用一个假的 chrome.* 把真正的 viewer.js 跑在普通网页里，
+// 这样不用装扩展就能验证切片几何、文字层对齐、译文插入是否正确。
+const MEM = {
+  settings: {
+    provider: 'bridge', layout: 'insert', autoTranslate: false,
+    targetLang: '简体中文', transColor: '#1a5fb4', transFontScale: 1,
+  },
+};
+window.chrome = {
+  runtime: {
+    getURL: (p) => '/' + p.replace(/^\/+/, ''),
+    openOptionsPage() { console.log('openOptionsPage'); },
+    onMessage: { addListener() {} },
+    sendMessage() {},
+  },
+  storage: {
+    local: {
+      async get(k) { return k ? { [k]: MEM[k] } : { ...MEM }; },
+      async set(o) { Object.assign(MEM, o); },
+    },
+    onChanged: { addListener() {} },
+  },
+  tabs: { async query() { return [{}]; }, async update() {}, async create() {} },
+};
+</script>
+
+<script type="module">
+// 直接复用真正的 viewer.html 结构，避免测试台和实际页面走样
+const html = await (await fetch('/viewer/viewer.html')).text();
+const doc = new DOMParser().parseFromString(html, 'text/html');
+document.body.insertAdjacentHTML('beforeend', doc.body.innerHTML);
+await import('/viewer/viewer.js');
+
+// viewer.js 从 ?file= 取文件；测试台里手动喂一个
+const res = await fetch('/test/' + (new URLSearchParams(location.search).get('pdf') || 'two-col.pdf'));
+const blob = new File([await res.blob()], 'two-col.pdf', { type: 'application/pdf' });
+const dt = new DataTransfer();
+dt.items.add(blob);
+document.getElementById('fileInput').files = dt.files;
+document.getElementById('fileInput').dispatchEvent(new Event('change'));
+
+// 塞一批假译文，检验插入后版面会不会塌。
+// 缩放或改排版会重建 DOM，所以挂个 observer 持续补上。
+window.fakeTranslate = () => {
+  fill();
+  new MutationObserver(fill).observe(document.getElementById('pages'), { childList: true });
+  return document.querySelectorAll('.tr').length;
+};
+function fill() {
+  let n = 0;
+  for (const el of document.querySelectorAll('.tr.pending')) {
+    el.classList.remove('pending');
+    el.style.minHeight = '';
+    el.textContent = `【译文占位 ${++n}】这里模拟一段中文译文，用来检查译文块插入之后，`
+      + `上下的画布切片会不会错位、分栏会不会串行、页面高度会不会算错。`;
+  }
+  return n;
+}
+</script>
+</body>
+</html>

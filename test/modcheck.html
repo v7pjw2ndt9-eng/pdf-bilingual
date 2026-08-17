@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>模块自检</title></head>
+<body>
+<pre id="out">检查中…</pre>
+<script>
+// 扩展 API 的最小桩，够让各模块在普通网页里被 import 一次，验证语法与依赖
+const noop = () => {};
+const listener = { addListener: noop, removeListener: noop };
+window.chrome = {
+  runtime: { getURL: (p) => '/' + p, openOptionsPage: noop, onMessage: listener,
+             onInstalled: listener, sendMessage: noop, id: 'test' },
+  storage: { local: { async get() { return {}; }, async set() {} }, onChanged: listener },
+  tabs: { async query() { return [{}]; }, async update() {}, async create() {} },
+  webNavigation: { onBeforeNavigate: listener },
+  webRequest: { onHeadersReceived: listener },
+  contextMenus: { create: noop, removeAll: (cb) => cb && cb(), onClicked: listener },
+};
+</script>
+<script type="module">
+const MODULES = [
+  '/src/settings.js', '/src/store.js', '/src/providers.js',
+  '/src/translate.js', '/src/layout.js', '/background.js',
+];
+const lines = [];
+let bad = 0;
+for (const m of MODULES) {
+  try { const mod = await import(m); lines.push(`✓ ${m}  导出: ${Object.keys(mod).join(', ') || '(无)'}`); }
+  catch (e) { bad++; lines.push(`✗ ${m}\n    ${e.message}`); }
+}
+// options.js / popup.js 会立刻操作各自页面的 DOM，这里只验证能否解析下载
+for (const m of ['/options/options.js', '/popup/popup.js', '/viewer/viewer.js']) {
+  const src = await (await fetch(m)).text();
+  // 包进 async 再解析：模块允许顶层 await，裸的 new Function 不允许
+  try { new Function(`return (async () => {${src.replace(/^\s*(import|export)\b.*$/gm, '')}})`); lines.push(`✓ ${m}  可解析`); }
+  catch (e) { bad++; lines.push(`✗ ${m}\n    ${e.message}`); }
+}
+lines.push(bad ? `\n${bad} 个模块有问题` : '\n全部通过');
+document.getElementById('out').textContent = lines.join('\n');
+window.MODCHECK = { bad, lines };
+</script>
+</body>
+</html>
