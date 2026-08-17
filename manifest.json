@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "PDF 双语阅读器",
+  "version": "0.1.0",
+  "description": "接管 PDF 阅读，按段落（而非按行）翻译，原文译文对照。支持 Claude / GPT / 本地订阅桥接。",
+  "minimum_chrome_version": "116",
+
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "webNavigation",
+    "webRequest",
+    "contextMenus"
+  ],
+  "host_permissions": ["<all_urls>"],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "PDF 双语阅读器"
+  },
+
+  "options_page": "options/options.html",
+
+  "web_accessible_resources": [
+    {
+      "resources": ["viewer/viewer.html", "lib/*", "src/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

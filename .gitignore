@@ -1,0 +1,11 @@
+# vendored 的 pdf.js —— 不入库，用 tools/fetch-pdfjs.sh 拉取。
+# 187 个文件 4MB，塞进 git 只会让仓库难看，而且它从不改动。
+lib/
+
+# 测试样本 PDF —— 体积大（20MB+）且是第三方版权材料。
+# 需要跑测试台的话用 tools/fetch-samples.sh 现取。
+test/*.pdf
+
+.DS_Store
+*.pyc
+__pycache__/
