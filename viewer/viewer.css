@@ -1,0 +1,184 @@
+:root {
+  --bg: #f0f0f4;
+  --bar: #2b2b33;
+  --bar-fg: #e8e8ee;
+  --page-shadow: 0 1px 3px rgba(0,0,0,.18), 0 6px 18px rgba(0,0,0,.10);
+  --trans-fg: #1a5fb4;
+  --trans-bg: rgba(26,95,180,.055);
+  --trans-scale: 1;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; height: 100%;
+  background: var(--bg);
+  font: 14px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+/* ------------------------------------------------------------- 工具栏 */
+
+#bar {
+  position: fixed; inset: 0 0 auto 0; height: 44px; z-index: 50;
+  display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  background: var(--bar); color: var(--bar-fg);
+  box-shadow: 0 1px 6px rgba(0,0,0,.25);
+  user-select: none;
+}
+#title {
+  max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 600;
+}
+#bar .grp { display: flex; align-items: center; gap: 4px; }
+#bar label { opacity: .65; font-size: 12px; }
+#bar .sep { width: 1px; height: 20px; background: rgba(255,255,255,.15); }
+#bar .spacer { flex: 1; }
+
+#bar button {
+  background: rgba(255,255,255,.10); color: inherit; border: 0;
+  height: 26px; min-width: 26px; padding: 0 8px; border-radius: 5px;
+  cursor: pointer; font: inherit; line-height: 1;
+}
+#bar button:hover { background: rgba(255,255,255,.20); }
+#bar button.primary { background: #3584e4; padding: 0 12px; }
+#bar button.primary:hover { background: #4a90e8; }
+#bar button:disabled { opacity: .4; cursor: default; }
+
+#bar select, #bar input {
+  background: rgba(255,255,255,.10); color: inherit;
+  border: 1px solid rgba(255,255,255,.12); border-radius: 5px;
+  height: 26px; padding: 0 6px; font: inherit;
+}
+#bar select option { background: #2b2b33; }
+#bar input#pageNum { width: 44px; text-align: center; }
+#zoomVal { min-width: 42px; text-align: center; font-variant-numeric: tabular-nums; font-size: 12px; }
+
+#progress {
+  position: relative; width: 150px; height: 18px;
+  background: rgba(255,255,255,.12); border-radius: 9px; overflow: hidden;
+}
+#progressBar { position: absolute; inset: 0 auto 0 0; width: 0; background: #3584e4; transition: width .25s; }
+#progressTxt {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------- 版面 */
+
+#viewport { position: absolute; inset: 44px 0 0 0; overflow: auto; }
+#pages { padding: 20px 0 60px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+
+.page {
+  position: relative;
+  background: #fff;
+  box-shadow: var(--page-shadow);
+  border-radius: 2px;
+}
+.page::after {
+  content: attr(data-page);
+  position: absolute; right: -46px; top: 0;
+  font-size: 11px; color: #8b8b96;
+}
+
+.band-full { display: block; }
+.band-cols { display: flex; align-items: flex-start; }
+.col { display: block; }
+
+/* 切片画布：一张页面画布被按段落切成若干横条，译文插在横条之间 */
+.slice { display: block; }
+.slice canvas { display: block; width: 100%; height: auto; }
+
+.slice-wrap { position: relative; }
+
+/* 透明文字层，让原文可以选中和复制 */
+.tl { position: absolute; inset: 0; overflow: hidden; line-height: 1; }
+/* 每行一个块级容器：复制时浏览器会在块之间补换行，item 之间的空格文本节点
+   也按 DOM 顺序进入剪贴板，所以选中复制出来的是正常的文本而不是黏成一坨。 */
+.tl .ln { position: absolute; white-space: pre; color: transparent; cursor: text; }
+.tl .ln > span { position: absolute; top: 0; transform-origin: 0 0; }
+.tl .ln::selection, .tl .ln > span::selection { background: rgba(53,132,228,.35); }
+
+/* ---------------------------------------------------------- 译文块 */
+
+.tr {
+  font-size: calc(1em * var(--trans-scale));
+  color: var(--trans-fg);
+  background: var(--trans-bg);
+  border-left: 2px solid color-mix(in srgb, var(--trans-fg) 45%, transparent);
+  padding: 3px 8px 4px;
+  margin: 2px 0 4px;
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  position: relative;
+}
+.tr.pending { color: #9aa0a6; background: repeating-linear-gradient(
+    100deg, rgba(0,0,0,.035) 0 12px, rgba(0,0,0,.06) 12px 24px);
+  background-size: 200% 100%; animation: shimmer 1.4s linear infinite; border-left-color: #c9ccd1; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.tr.error { color: #c01c28; background: rgba(192,28,40,.07); border-left-color: #c01c28; }
+.tr.tr-heading { font-weight: 700; }
+.tr.tr-caption { font-style: normal; opacity: .92; }
+
+.tr .copy {
+  position: absolute; right: 2px; top: 2px; opacity: 0;
+  border: 0; background: rgba(0,0,0,.06); border-radius: 4px;
+  font-size: 11px; padding: 1px 5px; cursor: pointer; color: #555;
+}
+.tr:hover .copy { opacity: 1; }
+
+/* ------------------------------------------------------- 分栏 / 悬停 */
+
+.page.side { display: flex; gap: 0; background: transparent; box-shadow: none; }
+.page.side .side-canvas { background: #fff; box-shadow: var(--page-shadow); position: relative; }
+.page.side .side-list {
+  width: 46%; min-width: 300px; padding: 10px 14px; overflow: hidden;
+  background: #fff; box-shadow: var(--page-shadow); margin-left: 14px; border-radius: 2px;
+}
+.side-item { margin-bottom: 12px; }
+.side-item .src { color: #6a6a72; font-size: 12.5px; margin-bottom: 3px; }
+.side-item.hi { background: rgba(53,132,228,.10); border-radius: 4px; }
+
+.hitbox { position: absolute; cursor: help; }
+.hitbox:hover { background: rgba(53,132,228,.13); border-radius: 3px; }
+
+#hoverCard {
+  position: fixed; z-index: 80; max-width: 460px;
+  background: #fff; color: #202024;
+  border: 1px solid #d5d5dd; border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.22);
+  padding: 10px 12px; font-size: 14px; line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* --------------------------------------------------------------- 其它 */
+
+#drop {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: var(--bg); text-align: center; color: #55555f;
+}
+#drop.hide { display: none; }
+#drop.over .drop-inner { transform: scale(1.03); border-color: #3584e4; color: #3584e4; }
+.drop-inner {
+  border: 2px dashed #c2c2cc; border-radius: 14px; padding: 40px 56px;
+  transition: transform .15s, border-color .15s;
+}
+.drop-inner h2 { margin: 0 0 8px; font-size: 18px; }
+.drop-inner p { margin: 4px 0; font-size: 13px; }
+.muted { color: #c01c28; max-width: 46ch; }
+
+#toast {
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+  background: #2b2b33; color: #fff; padding: 9px 16px; border-radius: 7px;
+  font-size: 13px; z-index: 90; box-shadow: 0 6px 20px rgba(0,0,0,.3);
+  max-width: 70vw;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1c1c20; }
+  #drop { color: #9a9aa4; }
+  .drop-inner { border-color: #3a3a44; }
+  #hoverCard { background: #26262c; color: #e6e6ee; border-color: #3a3a44; }
+  .page.side .side-list { background: #26262c; color: #d8d8e0; }
+  .side-item .src { color: #9a9aa4; }
+}

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PDF 双语阅读器</title>
+<link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+
+<header id="bar">
+  <span id="title" title="">PDF 双语阅读器</span>
+
+  <span class="sep"></span>
+
+  <div class="grp">
+    <button id="zoomOut" title="缩小">−</button>
+    <span id="zoomVal">100%</span>
+    <button id="zoomIn" title="放大">+</button>
+    <button id="zoomFit" title="适应宽度">⤢</button>
+  </div>
+
+  <div class="grp">
+    <input id="pageNum" type="text" value="1" size="3" title="跳转页码">
+    <span id="pageCount">/ 0</span>
+  </div>
+
+  <span class="sep"></span>
+
+  <div class="grp">
+    <label>排版</label>
+    <select id="layout">
+      <option value="insert">插入（译文在原文下）</option>
+      <option value="side">分栏（左原文右译文）</option>
+      <option value="hover">悬停（鼠标划过出译文）</option>
+    </select>
+  </div>
+
+  <div class="grp">
+    <label>后端</label>
+    <select id="provider">
+      <option value="bridge">本地桥接（订阅）</option>
+      <option value="anthropic">Claude API</option>
+      <option value="openai">GPT API</option>
+      <option value="google">Google 免费</option>
+    </select>
+  </div>
+
+  <span class="spacer"></span>
+
+  <div class="grp">
+    <button id="translate" class="primary">翻译全文</button>
+    <button id="stop" hidden>停止</button>
+  </div>
+  <div id="progress" hidden><div id="progressBar"></div><span id="progressTxt"></span></div>
+
+  <button id="openLocal" title="打开本地 PDF">📂</button>
+  <button id="settings" title="设置">⚙</button>
+  <input id="fileInput" type="file" accept="application/pdf,.pdf" hidden>
+</header>
+
+<main id="viewport">
+  <div id="pages"></div>
+
+  <div id="drop">
+    <div class="drop-inner">
+      <h2>把 PDF 拖到这里</h2>
+      <p>或者点右上角 📂 选文件。网页上的 PDF 链接会自动用这个阅读器打开。</p>
+      <p class="muted" id="dropErr"></p>
+    </div>
+  </div>
+</main>
+
+<div id="hoverCard" hidden></div>
+
+<div id="toast" hidden></div>
+
+<script type="module" src="viewer.js"></script>
+</body>
+</html>
