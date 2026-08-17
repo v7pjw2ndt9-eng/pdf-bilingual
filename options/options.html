@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PDF 双语阅读器 · 设置</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 14px/1.6 -apple-system, "PingFang SC", system-ui, sans-serif;
+    max-width: 720px; margin: 0 auto; padding: 28px 24px 60px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #77777f; margin: 0 0 24px; font-size: 13px; }
+  fieldset { border: 1px solid #d8d8e0; border-radius: 10px; padding: 14px 16px 18px; margin: 0 0 18px; }
+  legend { padding: 0 6px; font-weight: 600; }
+  .row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; align-items: center; margin: 9px 0; }
+  .row > label { color: #55555f; font-size: 13px; }
+  input[type=text], input[type=password], select, textarea {
+    width: 100%; padding: 6px 9px; border: 1px solid #c8c8d2; border-radius: 6px;
+    font: inherit; background: Field; color: FieldText;
+  }
+  textarea { min-height: 88px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+  .hint { grid-column: 2; color: #86868f; font-size: 12px; margin-top: -4px; }
+  .inline { display: flex; gap: 8px; align-items: center; }
+  button {
+    padding: 6px 14px; border: 1px solid #c8c8d2; border-radius: 6px;
+    background: ButtonFace; color: ButtonText; cursor: pointer; font: inherit;
+  }
+  button.primary { background: #3584e4; color: #fff; border-color: #3584e4; }
+  button:hover { filter: brightness(1.06); }
+  .pane { display: none; }
+  .pane.on { display: block; }
+  #status { position: fixed; right: 20px; bottom: 18px; padding: 8px 14px; border-radius: 7px;
+            background: #2b2b33; color: #fff; font-size: 13px; opacity: 0; transition: opacity .2s; }
+  #status.on { opacity: 1; }
+  code { background: rgba(128,128,140,.16); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .warn { background: rgba(230,160,30,.12); border-left: 3px solid #e6a01e; padding: 8px 12px;
+          border-radius: 0 6px 6px 0; font-size: 13px; margin: 10px 0 0; }
+</style>
+</head>
+<body>
+
+<h1>PDF 双语阅读器</h1>
+<p class="sub">段落级翻译 · Claude / GPT / 本地订阅桥接</p>
+
+<fieldset>
+  <legend>翻译后端</legend>
+  <div class="row">
+    <label>使用</label>
+    <select id="provider">
+      <option value="bridge">本地桥接 —— 走 Claude / ChatGPT 订阅，不额外花钱</option>
+      <option value="anthropic">Claude API —— 按 token 计费</option>
+      <option value="openai">GPT API（兼容任何 OpenAI 格式的中转）</option>
+      <option value="google">Google 免费端点 —— 质量一般，兜底用</option>
+    </select>
+  </div>
+
+  <!-- bridge -->
+  <div class="pane" data-p="bridge">
+    <div class="row"><label>桥接地址</label><input type="text" id="bridge.url"></div>
+    <div class="row">
+      <label>CLI</label>
+      <select id="bridge.engine">
+        <option value="claude">claude（Claude Code CLI，用 Claude 订阅）</option>
+        <option value="codex">codex（Codex CLI，用 ChatGPT 订阅）</option>
+      </select>
+    </div>
+    <div class="row"><label>模型</label><input type="text" id="bridge.model" placeholder="留空用 CLI 默认"></div>
+    <div class="row"><label></label><div class="inline">
+      <button id="pingBridge">测试连接</button><span id="bridgeState"></span>
+    </div></div>
+    <p class="warn">
+      需要先在终端里跑 <code>python3 bridge/bridge.py</code>，并且装好对应的 CLI
+      （<code>claude</code> 或 <code>codex</code>）并登录过。桥接每段请求要起一次进程，
+      比直连 API 慢不少，适合慢读；赶时间就切 API。
+    </p>
+  </div>
+
+  <!-- anthropic -->
+  <div class="pane" data-p="anthropic">
+    <div class="row"><label>API Key</label><input type="password" id="anthropic.apiKey" placeholder="sk-ant-..."></div>
+    <div class="row"><label>Base URL</label><input type="text" id="anthropic.baseUrl"></div>
+    <div class="row"><label>模型</label><div class="inline">
+      <input type="text" id="anthropic.model" list="anthropicModels">
+      <button id="fetchAnthropic">拉取列表</button>
+    </div></div>
+    <datalist id="anthropicModels"></datalist>
+    <p class="hint">读论文推荐 claude-sonnet-5；只求快和便宜可以用 claude-haiku-4-5-20251001。</p>
+  </div>
+
+  <!-- openai -->
+  <div class="pane" data-p="openai">
+    <div class="row"><label>API Key</label><input type="password" id="openai.apiKey" placeholder="sk-..."></div>
+    <div class="row"><label>Base URL</label><input type="text" id="openai.baseUrl"></div>
+    <div class="row"><label>模型</label><div class="inline">
+      <input type="text" id="openai.model" list="openaiModels">
+      <button id="fetchOpenai">拉取列表</button>
+    </div></div>
+    <datalist id="openaiModels"></datalist>
+    <p class="hint">Base URL 换成中转地址即可接入 DeepSeek、Qwen、one-api 等任何 OpenAI 兼容服务。</p>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>翻译</legend>
+  <div class="row"><label>目标语言</label><input type="text" id="targetLang"></div>
+  <div class="row"><label>并发请求</label><input type="text" id="concurrency" style="width:70px"></div>
+  <div class="hint">桥接模式建议 1–2，API 模式 3–6。</div>
+  <div class="row"><label>每次请求字数</label><input type="text" id="charsPerRequest" style="width:90px"></div>
+  <div class="hint">越大上下文越完整、术语越统一，但单次越慢。默认 3000。</div>
+  <div class="row"><label></label><label class="inline"><input type="checkbox" id="skipReferences"> 跳过参考文献</label></div>
+  <div class="row"><label></label><label class="inline"><input type="checkbox" id="translateCaptions"> 翻译图表标题</label></div>
+  <div class="row"><label>术语表</label><textarea id="glossary" placeholder="每行一条，例如：&#10;attention head=注意力头&#10;fine-tuning=微调"></textarea></div>
+</fieldset>
+
+<fieldset>
+  <legend>显示</legend>
+  <div class="row">
+    <label>排版</label>
+    <select id="layout">
+      <option value="insert">插入 —— 切开原文版面，译文紧跟在段落下方</option>
+      <option value="side">分栏 —— 左边原页，右边译文</option>
+      <option value="hover">悬停 —— 鼠标划过段落才出译文</option>
+    </select>
+  </div>
+  <div class="row"><label>译文字号</label><input type="text" id="transFontScale" style="width:70px"></div>
+  <div class="hint">相对正文字号的倍数，默认 1。</div>
+  <div class="row"><label>译文颜色</label><input type="text" id="transColor" style="width:110px"></div>
+  <div class="row"><label></label><label class="inline"><input type="checkbox" id="autoTranslate"> 打开 PDF 后自动开始翻译</label></div>
+  <div class="row"><label></label><label class="inline"><input type="checkbox" id="interceptPdf"> 自动接管网页上的 PDF 链接</label></div>
+</fieldset>
+
+<fieldset>
+  <legend>缓存</legend>
+  <div class="row"><label>已缓存段落</label><div class="inline">
+    <span id="cacheN">…</span><button id="clearCache">清空</button>
+  </div></div>
+  <div class="hint">译文按「模型 + 目标语言 + 原文」缓存，重开同一篇文章不会重复花钱。</div>
+</fieldset>
+
+<div class="inline"><button class="primary" id="save">保存</button></div>
+
+<div id="status"></div>
+<script type="module" src="options.js"></script>
+</body>
+</html>
