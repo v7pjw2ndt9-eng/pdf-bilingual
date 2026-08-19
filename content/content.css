@@ -1,0 +1,65 @@
+/* 译文块。用 span + display:block —— <div> 塞进 <p> 会被浏览器截断父元素。 */
+.pbx-tr {
+  display: block;
+  color: var(--pbx-color, #1a5fb4);
+  font-size: calc(1em * var(--pbx-scale, 1));
+  line-height: 1.6;
+  margin: 0.25em 0 0.5em;
+  padding: 0.1em 0 0.1em 0.6em;
+  border-left: 2px solid color-mix(in srgb, var(--pbx-color, #1a5fb4) 40%, transparent);
+  text-align: start;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  /* 别继承原文的装饰，否则会出现带下划线、全大写的译文 */
+  text-decoration: none;
+  text-transform: none;
+  letter-spacing: normal;
+  font-style: normal;
+  font-variant: normal;
+}
+
+/* 表格和列表里不要额外撑高 */
+td > .pbx-tr, th > .pbx-tr, li > .pbx-tr { margin: 0.15em 0 0.2em; }
+
+/* 标题的译文跟着标题的粗细走 */
+h1 > .pbx-tr, h2 > .pbx-tr, h3 > .pbx-tr,
+h4 > .pbx-tr, h5 > .pbx-tr, h6 > .pbx-tr { font-weight: inherit; }
+
+.pbx-tr.pbx-pending {
+  min-height: 1.2em;
+  border-left-color: #c9ccd1;
+  background: repeating-linear-gradient(100deg,
+    rgba(128, 128, 140, .07) 0 12px, rgba(128, 128, 140, .14) 12px 24px);
+  background-size: 200% 100%;
+  animation: pbx-shimmer 1.4s linear infinite;
+  border-radius: 3px;
+}
+@keyframes pbx-shimmer { to { background-position: -200% 0; } }
+
+.pbx-tr.pbx-error {
+  color: #c01c28;
+  border-left-color: #c01c28;
+  background: rgba(192, 28, 40, .06);
+  font-size: 0.9em;
+}
+
+/* 只看译文模式 */
+.pbx-hidden { display: none !important; }
+.pbx-hidden-text { color: transparent !important; font-size: 0 !important; }
+
+.pbx-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  background: #23232a;
+  color: #fff;
+  padding: 9px 16px;
+  border-radius: 8px;
+  font: 13px/1.4 -apple-system, "PingFang SC", system-ui, sans-serif;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .3);
+  pointer-events: none;
+  max-width: 80vw;
+}
