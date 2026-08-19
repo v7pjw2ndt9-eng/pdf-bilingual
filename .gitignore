@@ -6,6 +6,9 @@ lib/
 # 需要跑测试台的话用 tools/fetch-samples.sh 现取。
 test/*.pdf
 
+# 真实页面快照 —— 用 tools/fetch-real-pages.sh 现抓，同样是第三方版权材料。
+test/real/
+
 .DS_Store
 *.pyc
 __pycache__/

@@ -10,6 +10,9 @@
  *                           （arxiv.org/pdf/2401.12345 这种）
  */
 
+import { translateUnits } from './src/translate.js';
+import { loadSettings, saveSettings } from './src/settings.js';
+
 const VIEWER = chrome.runtime.getURL('viewer/viewer.html');
 const PDF_EXT = /\.pdf(?:[?#].*)?$/i;
 
@@ -82,4 +85,84 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     reply({ ok: true });
   }
   return false;
+});
+
+
+/* ==================================================== 网页翻译中枢 ====
+
+   content script 不能直接调 API：Chrome 把它的 fetch 纳入所在页面的 CORS
+   管辖，打 api.anthropic.com 会被拦。所以翻译统一在这里做 —— 顺带好处是
+   API key 不进页面上下文，各标签页共用同一个并发池和 IndexedDB 缓存。   */
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'translate') return;
+  let abort = null;
+
+  port.onMessage.addListener(async (msg) => {
+    if (msg.type === 'abort') { abort?.abort(); return; }
+    if (msg.type !== 'translate') return;
+
+    abort = new AbortController();
+    const settings = await loadSettings();
+    try {
+      await translateUnits(
+        msg.units,
+        { ...settings, docTitle: msg.title || '', docKind: 'web' },
+        {
+          onResult: (key, text) => post(port, { type: 'result', key, text }),
+          onProgress: (done, total) => post(port, { type: 'progress', done, total }),
+          onError: (err, key) => post(port, {
+            type: 'error', key, message: String(err?.message || err).split('\n')[0],
+          }),
+        },
+        abort.signal,
+      );
+    } catch (e) {
+      post(port, { type: 'fatal', message: String(e?.message || e).split('\n')[0] });
+    }
+    post(port, { type: 'done' });
+  });
+
+  port.onDisconnect.addListener(() => abort?.abort());
+});
+
+/** 端口可能在翻译途中断开（标签关闭、导航走了），postMessage 会抛。 */
+function post(port, msg) {
+  try { port.postMessage(msg); } catch { /* 对端已走 */ }
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (msg?.type === 'get-settings') {
+    loadSettings().then(reply);
+    return true;
+  }
+  if (msg?.type === 'should-auto') {
+    loadSettings().then((s) => {
+      const list = s.webAutoSites || [];
+      const host = msg.host || '';
+      const hit = s.webAutoTranslate ||
+        list.some((h) => host === h || host.endsWith('.' + h));
+      reply({ auto: !!hit });
+    });
+    return true;
+  }
+  if (msg?.type === 'toggle-site-auto') {
+    loadSettings().then(async (s) => {
+      const list = new Set(s.webAutoSites || []);
+      list.has(msg.host) ? list.delete(msg.host) : list.add(msg.host);
+      await saveSettings({ webAutoSites: [...list] });
+      reply({ auto: list.has(msg.host) });
+    });
+    return true;
+  }
+  return false;
+});
+
+/* 快捷键（默认 Alt+T）*/
+chrome.commands?.onCommand.addListener(async (cmd) => {
+  if (cmd !== 'toggle-translate') return;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return;
+  if (tab.url?.startsWith(VIEWER)) return;   // PDF 阅读器自己有按钮
+  chrome.tabs.sendMessage(tab.id, { type: 'pbx-toggle' }).catch(() => {});
 });
