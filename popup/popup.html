@@ -14,6 +14,8 @@
            background: ButtonFace; color: ButtonText; cursor: pointer; font: inherit; margin-top: 4px; }
   button.primary { background: #3584e4; color: #fff; border-color: #3584e4; }
   label.chk { display: flex; align-items: center; gap: 6px; }
+  hr { border: 0; border-top: 1px solid #d8d8e0; margin: 12px 0 8px; }
+  .kbd { opacity: .65; font-size: 11px; margin-left: 4px; }
   .muted { color: #86868f; font-size: 12px; margin: 10px 0 0; }
 </style>
 </head>
@@ -42,7 +44,10 @@
 <div class="row"><label class="chk"><input type="checkbox" id="interceptPdf"> 自动接管 PDF 链接</label></div>
 <div class="row"><label class="chk"><input type="checkbox" id="autoTranslate"> 打开即翻译</label></div>
 
-<button class="primary" id="openHere">用双语阅读器打开当前页</button>
+<button class="primary" id="translatePage">翻译此网页 <span class="kbd">Alt+T</span></button>
+<div class="row"><label class="chk"><input type="checkbox" id="siteAuto"> 总是自动翻译此站点</label></div>
+<hr>
+<button id="openHere">用 PDF 阅读器打开当前页</button>
 <button id="openBlank">打开本地 PDF</button>
 <button id="opts">设置…</button>
 

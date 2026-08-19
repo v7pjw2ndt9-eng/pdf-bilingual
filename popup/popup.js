@@ -13,6 +13,29 @@ for (const k of ['provider', 'layout', 'interceptPdf', 'autoTranslate']) {
 
 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
+const host = (() => { try { return new URL(tab.url).hostname; } catch { return ''; } })();
+const isWeb = /^https?:/.test(tab?.url || '');
+
+// 站点自动翻译开关
+if (host) {
+  chrome.runtime.sendMessage({ type: 'should-auto', host }).then((r) => {
+    $('siteAuto').checked = !!(r && r.auto);
+  });
+  $('siteAuto').onchange = () => chrome.runtime.sendMessage({ type: 'toggle-site-auto', host });
+}
+
+$('translatePage').disabled = !isWeb;
+$('translatePage').onclick = async () => {
+  if (!tab?.id) return;
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: 'pbx-toggle' });
+  } catch {
+    $('tip').textContent = '这个页面注入不了脚本（chrome:// 或商店页面），换个普通网页试试。';
+    return;
+  }
+  window.close();
+};
+
 $('openHere').onclick = async () => {
   if (!tab?.url) return;
   if (tab.url.startsWith(VIEWER)) { window.close(); return; }
