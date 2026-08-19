@@ -9,7 +9,7 @@
 import { getProvider, isPlainProvider } from './providers.js';
 import { hashKey, getMany, putMany } from './store.js';
 
-const SYSTEM = (lang, glossary, docTitle) => `你是一位专业的学术文献译者，正在翻译一篇 PDF 文档${docTitle ? `《${docTitle}》` : ''}。
+const SYSTEM = (lang, glossary, docTitle, kind) => `你是一位专业译者，正在翻译${kind === 'web' ? '一个网页' : '一篇 PDF 文档'}${docTitle ? `《${docTitle}》` : ''}。
 
 翻译要求：
 1. 目标语言：${lang}。译文要通顺、符合中文表达习惯，不要逐词硬译，不要翻译腔。
@@ -21,7 +21,9 @@ const SYSTEM = (lang, glossary, docTitle) => `你是一位专业的学术文献�
    - 图表编号（Figure 3、Table 2 译作「图 3」「表 2」）
 4. 输入的每一段都是完整段落（已经过段落重建，不是按行切碎的），请按整段的语义翻译，
    不要在段内插入换行。
-5. 只输出译文，不要任何解释、注释、前后缀。
+5. 形如 ⟦1⟧ ⟦2⟧ 的记号是被抽走的代码或公式的占位符。必须原样保留在译文中，
+   位置按中文语序安排，不要翻译、不要改动、不要增删编号。
+6. 只输出译文，不要任何解释、注释、前后缀。
 ${glossary ? `\n术语对照表（必须遵守）：\n${glossary}` : ''}
 
 输出格式：对每个输入的 <seg id="N">，输出一个对应的 <seg id="N">译文</seg>，
@@ -105,7 +107,7 @@ export async function translateUnits(units, settings, hooks = {}, signal) {
 
   const provider = getProvider(settings);
   const plain = isPlainProvider(settings);
-  const system = SYSTEM(settings.targetLang, settings.glossary.trim(), settings.docTitle || '');
+  const system = SYSTEM(settings.targetLang, (settings.glossary || '').trim(), settings.docTitle || '', settings.docKind);
 
   // 2. 分批
   const batches = plain

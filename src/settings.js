@@ -21,6 +21,12 @@ export const DEFAULTS = {
     model: '',                   // 留空用 CLI 默认模型
   },
 
+  // 网页翻译
+  webAutoTranslate: false,       // 所有站点自动翻
+  webAutoSites: [],              // 只有这些域名自动翻
+  webSkipUI: true,               // 跳过导航/按钮里的短标签
+  webMode: 'bilingual',          // bilingual 双语对照 | translated 只看译文
+
   concurrency: 3,
   charsPerRequest: 3000,
   skipReferences: true,
