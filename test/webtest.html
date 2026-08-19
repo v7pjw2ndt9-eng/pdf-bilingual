@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>网页段落划分测试台</title>
+<style>
+  body { font: 14px/1.6 -apple-system, system-ui, sans-serif; margin: 20px; max-width: 900px; }
+  #report { background: #f4f4f8; padding: 12px 16px; border-radius: 8px; white-space: pre-wrap;
+            font: 12.5px/1.6 ui-monospace, Menlo, monospace; }
+  .pass { color: #1a7f37; } .fail { color: #c01c28; font-weight: bold; }
+  #fixture { border: 1px solid #ddd; padding: 16px; margin-top: 20px; border-radius: 8px; }
+  .hidden-thing { display: none; }
+  nav a { margin-right: 10px; }
+  pre { background: #f6f8fa; padding: 10px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1 style="font-size:16px">网页段落划分测试台</h1>
+<div id="report">跑测试中…</div>
+
+<!-- ============ 被测样本：把各种坑都塞进来 ============ -->
+<div id="fixture">
+  <nav>
+    <a href="#">Home</a><a href="#">Docs</a><a href="#">Pricing</a><a href="#">Blog</a>
+  </nav>
+
+  <h2>Attention mechanisms in transformers</h2>
+
+  <p id="t-inline">The <em>attention</em> mechanism lets a model weigh
+     <a href="#">different positions</a> of the input sequence, which is
+     <strong>essential</strong> for long-range dependencies.</p>
+
+  <p id="t-code">Install it with <code>pip install torch</code> and then call
+     <code>model.forward(x)</code> to run inference on a batch.</p>
+
+  <pre id="t-pre"><code>def forward(self, x):
+    return self.linear(self.norm(x))</code></pre>
+
+  <ul>
+    <li id="t-li-mixed">Self-attention computes pairwise interactions between all tokens.
+      <ul>
+        <li id="t-li-nested">Quadratic in sequence length, which limits context size.</li>
+        <li>Linear attention variants trade accuracy for speed.</li>
+      </ul>
+    </li>
+  </ul>
+
+  <div id="t-div-para">A plain div used as a paragraph, which is extremely common
+     in modern web apps that never emit a p tag at all.</div>
+
+  <div><div><div id="t-deep">Deeply nested single text node, three divs down.</div></div></div>
+
+  <p id="t-cjk">这一段本来就是中文，不应该被翻译。</p>
+
+  <p id="t-mixed-cjk">A mostly English sentence that happens to mention 注意力机制 once.</p>
+
+  <p id="t-math">The complexity is <span class="katex">O(n^2 d)</span> for sequence length n.</p>
+
+  <p id="t-sup">Prior work established this bound<sup>[12]</sup> for the general case.</p>
+
+  <p class="hidden-thing" id="t-hidden">This paragraph is display:none and must be skipped.</p>
+
+  <p id="t-nums">3.14159 — 42 — 2024/01/01</p>
+
+  <p id="t-short">OK</p>
+
+  <table>
+    <tr><th id="t-th">Model</th><th>Params</th></tr>
+    <tr><td id="t-td">A small encoder trained on public data only.</td><td>110M</td></tr>
+  </table>
+
+  <blockquote id="t-quote">Attention is all you need, or so the title claimed.</blockquote>
+
+  <p translate="no" id="t-notranslate">This must not be translated per the translate attribute.</p>
+
+  <p id="t-br-single">A long sentence that some sites hard-wrap<br>with a single br for typography reasons.</p>
+
+  <div id="t-br-double">First old-style paragraph separated only by double breaks.<br><br>Second old-style paragraph that must not be merged with the first one.</div>
+
+  <a class="skip" href="#main" id="t-skip">Skip to main content</a>
+
+  <footer><span>© 2026</span> <a href="#">Terms</a></footer>
+</div>
+
+<script src="../src/webblocks.js"></script>
+<script>
+const R = [];
+const ok = (cond, name, extra='') => R.push({ pass: !!cond, name, extra });
+
+const units = PBXBlocks.collectUnits(document.getElementById('fixture'),
+  { targetIsCJK: true, skipUI: true });
+
+const byText = (frag) => units.find(u => u.text.includes(frag));
+const anchoredIn = (id) => units.filter(u => {
+  let el = u.anchor.nodeType === 1 ? u.anchor : u.anchor.parentElement;
+  return el && (el.id === id || el.closest('#' + id));
+});
+
+/* --- 1. 行内标记不该把段落切碎 --- */
+const inl = byText('attention mechanism lets a model weigh');
+ok(inl && /essential for long-range dependencies\.$/.test(inl.text),
+   '行内 em/a/strong 不打断段落', inl ? inl.text.slice(-46) : '未找到');
+ok(anchoredIn('t-inline').length === 1, '带行内标记的 <p> 只产生 1 个单元',
+   '实得 ' + anchoredIn('t-inline').length);
+
+/* --- 2. 行内代码变占位符，代码块整体跳过 --- */
+const cd = byText('Install it with');
+ok(cd && cd.ph.length === 2, '两处行内 <code> 抽成 2 个占位符', cd ? 'ph=' + JSON.stringify(cd.ph) : '未找到');
+ok(cd && /⟦1⟧/.test(cd.text) && /⟦2⟧/.test(cd.text), '占位符出现在文本里', cd && cd.text);
+ok(!units.some(u => u.text.includes('def forward')), '<pre><code> 代码块被跳过');
+// 占位符能还原
+const restored = cd ? PBXBlocks.restore('用 ⟦1⟧ 安装，然后调用 ⟦2⟧ 推理。', cd.ph) : '';
+ok(restored === '用 pip install torch 安装，然后调用 model.forward(x) 推理。',
+   '译文里的占位符能正确还原', restored);
+
+/* --- 3. 列表：本级文字与嵌套项各自独立 --- */
+const liOwn = byText('Self-attention computes pairwise');
+ok(liOwn && !liOwn.text.includes('Quadratic'),
+   '<li> 自己的文字不吞掉嵌套 <ul>', liOwn ? liOwn.text : '未找到');
+ok(byText('Quadratic in sequence length'), '嵌套 <li> 是独立单元');
+
+/* --- 4. div 当段落用、深层嵌套 --- */
+ok(byText('A plain div used as a paragraph'), 'div 当段落用能识别');
+const deep = byText('Deeply nested single text node');
+ok(deep && anchoredIn('t-deep').length === 1, '三层 div 里的文本只产生 1 个单元',
+   '实得 ' + anchoredIn('t-deep').length);
+
+/* --- 5. 语言判定 --- */
+ok(!byText('这一段本来就是中文'), '已是中文的段落跳过');
+ok(byText('A mostly English sentence that happens'), '夹带少量中文的英文段落仍要翻');
+
+/* --- 6. 公式与上标 --- */
+const mt = byText('The complexity is');
+ok(mt && mt.ph.length === 1 && mt.ph[0] === 'O(n^2 d)', 'KaTeX span 抽成占位符',
+   mt ? JSON.stringify(mt.ph) : '未找到');
+const sp = byText('Prior work established this bound');
+ok(sp && sp.text.includes('[12]'), '<sup> 引文编号留在段内', sp && sp.text);
+
+/* --- 7. 该跳过的 --- */
+ok(!byText('display:none and must be skipped'), 'display:none 跳过');
+ok(!units.some(u => /^3\.14159/.test(u.text)), '纯数字段落跳过');
+ok(!units.some(u => u.text === 'OK'), '过短文本跳过');
+ok(!byText('must not be translated per the translate'), 'translate="no" 跳过');
+ok(!units.some(u => u.text === 'Home' || u.text === 'Docs'), 'nav 里的短标签跳过');
+ok(!units.some(u => u.text.includes('Terms')), 'footer 里的短标签跳过');
+
+/* --- 7b. <br> 处理 --- */
+const brS = byText('some sites hard-wrap');
+ok(brS && /typography reasons\.$/.test(brS.text), '单个 <br> 只当空格，不切碎句子',
+   brS ? brS.text : '未找到');
+const d1 = byText('First old-style paragraph');
+const d2 = byText('Second old-style paragraph');
+ok(d1 && d2 && d1 !== d2, '连续 <br> 切成两段',
+   d1 && d2 ? '两段' : '合成了一段（会导致整页并成一个巨型单元）');
+ok(d1 && !d1.text.includes('Second old-style'), '第一段不含第二段内容', d1 && d1.text);
+ok(!byText('Skip to main content'), '锚点跳转链接跳过');
+
+/* --- 8. 表格与引用 --- */
+ok(byText('A small encoder trained on public data'), '表格单元格里的句子能翻');
+// 表头是内容而非界面外壳，"Model"→"模型" 对读表有用，应当翻译
+ok(byText('Model') || units.some(u => u.text === 'Model'), '表头也纳入翻译（是内容不是界面）');
+ok(byText('Attention is all you need, or so'), 'blockquote 能翻');
+
+/* --- 9. 插入与还原 --- */
+const target = byText('A plain div used as a paragraph');
+PBXBlocks.placeholder(target);
+ok(document.querySelectorAll('.pbx-tr.pbx-pending').length === 1, '占位骨架插入成功');
+PBXBlocks.insert(target, '一个当作段落使用的 div，这在现代网页里极其常见。');
+const ins = document.querySelector('#t-div-para .pbx-tr');
+ok(ins && ins.textContent.startsWith('一个当作段落'), '译文插到原文后面', ins && ins.textContent);
+ok(!ins.classList.contains('pbx-pending'), '插入后骨架状态清除');
+// 二次扫描不该重复处理已插入的单元
+const again = PBXBlocks.collectUnits(document.getElementById('fixture'), { targetIsCJK: true, skipUI: true });
+ok(!again.some(u => u.text.includes('A plain div used as a paragraph')),
+   '重扫不会重复抓已翻译的段落');
+ok(!again.some(u => u.text.includes('一个当作段落使用')), '重扫不会把译文本身当原文抓进来');
+PBXBlocks.revert(document);
+ok(document.querySelectorAll('.pbx-tr').length === 0, '还原后译文节点清空');
+ok(document.querySelectorAll('[data-pbx]').length === 0, '还原后处理标记清空');
+
+/* ---------------------------------------------------------------- 报告 */
+const failed = R.filter(r => !r.pass);
+const lines = [
+  `单元总数 ${units.length}`,
+  `断言 ${R.length} 条，通过 ${R.length - failed.length}，失败 ${failed.length}`,
+  '',
+  ...R.map(r => `${r.pass ? '✓' : '✗'} ${r.name}${r.extra ? '\n      → ' + r.extra : ''}`),
+  '',
+  '--- 抓到的单元 ---',
+  ...units.map((u, i) => `${i + 1}. [ph:${u.ph.length}] ${u.text.slice(0, 100)}`),
+];
+const rep = document.getElementById('report');
+rep.textContent = lines.join('\n');
+rep.className = failed.length ? 'fail' : 'pass';
+window.WEBTEST = { total: R.length, failed: failed.map(f => f.name + (f.extra ? ' → ' + f.extra : '')), units: units.length };
+</script>
+</body>
+</html>

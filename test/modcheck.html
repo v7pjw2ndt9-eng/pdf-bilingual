@@ -9,7 +9,10 @@ const noop = () => {};
 const listener = { addListener: noop, removeListener: noop };
 window.chrome = {
   runtime: { getURL: (p) => '/' + p, openOptionsPage: noop, onMessage: listener,
-             onInstalled: listener, sendMessage: noop, id: 'test' },
+             onInstalled: listener, onConnect: listener, connect: () => ({
+               onMessage: listener, onDisconnect: listener, postMessage: noop }),
+             sendMessage: noop, id: 'test' },
+  commands: { onCommand: listener },
   storage: { local: { async get() { return {}; }, async set() {} }, onChanged: listener },
   tabs: { async query() { return [{}]; }, async update() {}, async create() {} },
   webNavigation: { onBeforeNavigate: listener },
@@ -29,7 +32,8 @@ for (const m of MODULES) {
   catch (e) { bad++; lines.push(`✗ ${m}\n    ${e.message}`); }
 }
 // options.js / popup.js 会立刻操作各自页面的 DOM，这里只验证能否解析下载
-for (const m of ['/options/options.js', '/popup/popup.js', '/viewer/viewer.js']) {
+for (const m of ['/options/options.js', '/popup/popup.js', '/viewer/viewer.js',
+                 '/src/webblocks.js', '/content/content.js']) {
   const src = await (await fetch(m)).text();
   // 包进 async 再解析：模块允许顶层 await，裸的 new Function 不允许
   try { new Function(`return (async () => {${src.replace(/^\s*(import|export)\b.*$/gm, '')}})`); lines.push(`✓ ${m}  可解析`); }
