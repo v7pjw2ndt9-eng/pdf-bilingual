@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PDF 与网页双语阅读器",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "按段落（而非按行）翻译 PDF 和网页，原文译文对照。支持 Claude / GPT / 本地订阅桥接。",
   "minimum_chrome_version": "116",
   "permissions": [

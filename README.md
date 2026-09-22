@@ -17,6 +17,9 @@
 - **行内游程分组** —— 一个元素的子节点里，连续的文本和行内元素攒成一个单元，
   遇到块级子元素才断开。所以 `<p>前面<a>链接</a><em>强调</em>后面</p>` 始终是一整段，
   而 `<li>文字<ul>嵌套</ul></li>` 会得到「文字」和嵌套项各自独立的单元。
+  行内还是块级由**计算样式**说了算，标签名只当兜底 —— 但 `h1`–`h6`、`p`、`li`、
+  `td` 这类语义标签听语义的：Wikipedia 的 Vector 2022 把 `<h2>` 设成
+  `display:inline`（好让 `[edit]` 贴在旁边），纯按 CSS 判断会让全部章节标题消失。
 - **代码与公式占位符** —— 行内 `<code>`、KaTeX/MathJax 抽成 `⟦1⟧` 送去翻译，
   回来再换回原文。比只在提示词里叮嘱「别翻译代码」可靠得多；`<pre>` 代码块整体跳过。
 - **界面外壳过滤** —— 导航、页脚、按钮里的短标签不翻。另有两条结构判据：
@@ -29,6 +32,28 @@
   新内容会自动接上。
 - **单个 `<br>` 当空格，连续 `<br>` 当分段** —— 前者避免把软换行的长句切碎，
   后者避免老式 HTML（论坛正文）整页并成一个巨型单元。
+
+### 社交媒体（X / Bluesky 这类）
+
+这类站点用 React Native Web，**所有布局都由 CSS 决定，标签名毫无意义**：
+实测 Bluesky 一页里 337 个 `<span>`/`<a>`，183 个是 `display:block`、75 个是
+`display:flex`，真正 `inline` 的只有 79 个；X 上也是 49% 的 `span`/`a` 是块级盒子。
+
+所以行内/块级一律由计算样式判定，只有语义标签例外（见下）。另外三条针对信息流：
+
+- **跨元素边界补空格** —— 框架模板里元素之间没有空白文本节点，
+  `<span>Market</span><span>topchicken</span>` 直接拼起来就是 `Markettopchicken`，
+  送去翻译的原文本身就是烂的。
+- **内容 vs 界面** —— 用户名、`@handle`、域名、`863 posts` 这类计数直接跳过；
+  短的非句子片段只在标题位置（`h1`–`h6` / `th` / `role="heading"`）才翻。
+  不加这条的话，每条推文的用户名、`Pinned`、`Reposted by X` 下面都会挂一句译文，
+  整个时间线被糊满。
+- **虚拟化列表回收** —— 判重只看 DOM（锚点后面有没有译文节点），不用「文本+路径」
+  的字符串集合。后者会在条目被摘掉再装回来时永久挡住它，滚回去的内容再也拿不到译文。
+  框架重渲染擦掉译文节点后也能自愈重插。
+- **增量重扫** —— MutationObserver 只记下变动的子树根，重扫时只扫它们，
+  不是每次都从 `document.body` 重来；滚出视口被摘掉的单元会定期清理，
+  避免无限滚动时内存和观察目标无限堆积。
 
 API 调用放在 background service worker 里，不在页面上下文 —— Chrome 把 content script
 的 fetch 纳入所在页面的 CORS 管辖，从页面直接打 `api.anthropic.com` 会被拦掉。
@@ -85,6 +110,18 @@ clone 都变重。`tools/fetch-pdfjs.sh` 按固定版本号从 npm 拉取，一�
 - Claude：读论文用 `claude-sonnet-5`，图便宜用 `claude-haiku-4-5-20251001`
 - GPT：Base URL 改成中转地址就能接 DeepSeek / Qwen / one-api 等任何 OpenAI 兼容服务
 - 两边都有「拉取列表」按钮，直接从 API 拿当前可用的模型名，不用猜
+
+**新模型不用等我更新。** OpenAI 这边的请求参数是跟服务端协商出来的，不是按模型名猜的：
+先按最兼容的形状发（`max_tokens` + `temperature`），被拒就从服务端的报错里读出它要什么
+（换 `max_completion_tokens`、去掉 `temperature`……），调整后立刻重试，并把学到的形状按
+「Base URL + 模型」记住，之后一发命中。
+
+顺带一条：**拒收 `temperature` 基本就是推理模型的标志**，认出来之后会把
+`reasoning_effort` 压到 `low`。翻译不需要模型先想一轮，用默认档位既慢又要多烧
+一大截推理 token。这个字段要是服务端也不认，下一轮会把它摘掉。
+
+之前这里写的是 `/^(o\d|gpt-5)/` 这种模型名白名单，白名单不认识的新模型会被当成老模型、
+带上它不收的参数直接 400；而且各家第三方中转支持的字段本来就不一样，按名字根本猜不准。
 
 一篇 20 页论文大约几毛到一块多，取决于模型。
 
@@ -143,7 +180,7 @@ content/           网页侧 content script（懒加载、动态内容、译文�
 options/ popup/    设置页与弹窗
 bridge/bridge.py   本地订阅桥接
 
-test/              四个测试台（见下）
+test/              五个测试台（见下）
 tools/             拉 pdf.js、拉测试样本、抓真实页面的脚本
 lib/               pdf.js 4.10.38（不入库，跑 tools/fetch-pdfjs.sh 生成）
 ```
@@ -171,14 +208,22 @@ python3 -m http.server 8935 --directory .
 - `http://localhost:8935/test/viewer-test.html` —— 用假的 `chrome.*` 把真正的
   阅读器跑在普通网页里，检查切片几何、文字层对齐、译文插入。
   控制台里 `fakeTranslate()` 可以塞满假译文看版面撑不撑得住。
-- `http://localhost:8935/test/webtest.html` —— 网页段落划分，34 条断言，
+- `http://localhost:8935/test/providertest.html` —— 后端参数协商，24 条断言。
+  需要另起 `python3 test/mock-openai.py`（8938 端口），它会按模型名前缀模拟几种
+  服务端脾气：`strict-*` 两样参数都挑剔（新推理模型）、`legacy-*` 只认 `max_tokens`
+  （老模型/第三方中转）、`notemp-*` 只拒 `temperature`、`noreason-*` 还不认
+  `reasoning_effort`、`badkey-*` 返回 401。断言覆盖「能谈拢」「学到的形状会记住」
+  「老模型不被带坏」「认出推理模型后压低推理档位」「报错带上服务端原文」。
+- `http://localhost:8935/test/webtest.html` —— 网页段落划分，39 条断言，
   样本里塞了行内标记、嵌套列表、行内代码、代码块、KaTeX、表格、
   已是中文的段落、隐藏元素、纯数字、`translate="no"`、导航/页脚短标签、
-  单/双 `<br>`、锚点跳转链接。全绿才算过。
+  单/双 `<br>`、锚点跳转链接，以及信息流场景（框架重渲染擦除后自愈、
+  虚拟化条目回收、增量子树扫描）。全绿才算过。
 - 真实页面：`./tools/fetch-real-pages.sh` 抓 Wikipedia / arXiv / MDN 到
   `test/real/`（注入 `<base href>` 让原站 CSS 照常加载），打开后看 `window.PROBE`。
   Wikipedia 那篇一万多个节点，扫描应在 **40ms** 上下 —— 如果退化到几百毫秒，
   说明哪里又开始逐元素调 `getComputedStyle` 了。
+  社交站点是客户端渲染的，静态快照抓不到时间线，只能装上扩展在真站点上看。
 
 ## 已知限制
 
