@@ -60,29 +60,47 @@ var PBXBlocks = (function () {
     try { return el.matches(ATOMIC_SEL); } catch { return false; }
   }
 
-  // 已知的块级标签。有了这张表，绝大多数元素都不必碰 getComputedStyle ——
-  // Wikipedia 这类上万节点的页面上，逐元素取计算样式会让扫描卡死好几秒。
-  const BLOCK = new Set([
-    'DIV', 'P', 'LI', 'UL', 'OL', 'DL', 'DD', 'DT', 'TABLE', 'THEAD', 'TBODY', 'TFOOT',
-    'TR', 'TD', 'TH', 'CAPTION', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE',
-    'SECTION', 'ARTICLE', 'MAIN', 'ASIDE', 'NAV', 'HEADER', 'FOOTER', 'FIGURE',
-    'FIGCAPTION', 'FORM', 'FIELDSET', 'LEGEND', 'DETAILS', 'SUMMARY', 'ADDRESS',
-    'HGROUP', 'BODY', 'HTML', 'CENTER', 'MENU', 'DIR',
+  /**
+   * 行内还是块级，必须由 CSS 说了算，标签名只能当兜底。
+   *
+   * React Native Web（X、Bluesky 等一大批应用都用它）把所有布局都交给 CSS：
+   * 实测 Bluesky 一页里 337 个 <span>/<a>，183 个是 display:block、75 个是
+   * display:flex，真正 inline 的只有 79 个。先看标签名就返回的话，这些块级盒子
+   * 会被塞进同一个游程，结果是「34.9M followers15 following」这种粘成一坨的
+   * 烂文本被送去翻译。
+   *
+   * 代价可以接受：对整页 5178 个元素取计算样式只要 3ms，而且结果有缓存。
+   */
+  const INLINE_DISPLAY = new Set([
+    'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table',
+    'ruby', 'ruby-base', 'ruby-text', 'contents', 'math',
+  ]);
+
+  // 这几个无论 CSS 怎么写都不该切断段落
+  const ALWAYS_INLINE = new Set(['BR', 'IMG', 'WBR', 'PICTURE', 'SVG']);
+
+  // 语义标签听语义的，不听 CSS。Wikipedia 的 Vector 2022 把 <h2> 设成
+  // display:inline（为了让 [edit] 链接贴在标题旁边），纯按 CSS 判断的话
+  // 所有章节标题都会并进相邻游程、连带丢掉「这是标题」这个身份。
+  // React Native Web 只会吐 div/span/a，所以保留语义标签的判断不影响推特那边。
+  const ALWAYS_BLOCK = new Set([
+    'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'LI', 'UL', 'OL', 'DL', 'DT', 'DD',
+    'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TD', 'TH', 'CAPTION',
+    'BLOCKQUOTE', 'FIGURE', 'FIGCAPTION', 'ARTICLE', 'SECTION', 'MAIN', 'ASIDE',
+    'NAV', 'HEADER', 'FOOTER', 'FORM', 'FIELDSET', 'HR', 'ADDRESS', 'DETAILS', 'SUMMARY',
   ]);
 
   const dispCache = new WeakMap();
 
   function isInline(el) {
-    const t = el.tagName;
-    if (INLINE.has(t)) return true;
-    if (BLOCK.has(t)) return false;
-    // 只有自定义元素、未知标签才需要真去问浏览器
+    if (ALWAYS_INLINE.has(el.tagName)) return true;
+    if (ALWAYS_BLOCK.has(el.tagName)) return false;
     if (dispCache.has(el)) return dispCache.get(el);
-    let inline = false;
+    let inline = INLINE.has(el.tagName);        // 取不到样式时的兜底
     try {
       const d = getComputedStyle(el).display;
-      inline = d === 'inline' || d === 'inline-block' || d === 'inline-flex' || d === 'ruby';
-    } catch { inline = false; }
+      if (d) inline = INLINE_DISPLAY.has(d);
+    } catch { /* 用兜底值 */ }
     dispCache.set(el, inline);
     return inline;
   }
@@ -125,19 +143,32 @@ var PBXBlocks = (function () {
   function extractText(nodes) {
     let s = '';
     const ph = [];
+    // 刚跨过一个元素边界。现代框架的模板里元素之间没有空白文本节点，
+    // <span>Market</span><span>topchicken</span> 直接拼起来就成了
+    // "Markettopchicken"，送去翻译的原文本身就是烂的。
+    let boundary = false;
+
+    const put = (txt) => {
+      if (!txt) return;
+      if (boundary && /\w$/.test(s) && /^\w/.test(txt)) s += ' ';
+      boundary = false;
+      s += txt;
+    };
 
     const visit = (n) => {
-      if (isText(n)) { s += n.nodeValue; return; }
+      if (isText(n)) { put(n.nodeValue); return; }
       if (!isEl(n)) return;
-      if (n.tagName === 'BR') { s += ' '; return; }
+      if (n.tagName === 'BR') { s += ' '; boundary = false; return; }
       if (isOurs(n)) return;
       if (isAtomic(n)) {
         const t = n.textContent.trim();
-        if (t) { ph.push(t); s += PH_OPEN + ph.length + PH_CLOSE; }
+        if (t) { ph.push(t); put(PH_OPEN + ph.length + PH_CLOSE); }
         return;
       }
       if (shouldSkip(n)) return;
+      boundary = true;
       for (const c of n.childNodes) visit(c);
+      boundary = true;
     };
 
     nodes.forEach(visit);
@@ -155,6 +186,11 @@ var PBXBlocks = (function () {
   /* ---------------------------------------------------- 值不值得翻 */
 
   const CJK = /[㐀-䶿一-鿿豈-﫿぀-ヿ]/g;
+  // 社交媒体信息流里满地都是这些：用户名、@handle、域名、计数
+  const HANDLE_RE = /^[@#][\w.\-]+$/;
+  const DOMAINISH_RE = /^[\w-]+(?:\.[\w-]+)+$/;
+  const COUNTISH_RE = /^\d[\d.,]*\s*[KMB]?\s+\w+$/i;
+  const SENTENCE_END_RE = /[.!?。！？…][\"'”’）)\]]?\s*$/;
   const LATIN = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]/g;
 
   function nearestBlock(node) {
@@ -164,6 +200,16 @@ var PBXBlocks = (function () {
   }
 
   const chromeCache = new WeakMap();
+  /** 标题类元素里的单词值得翻（Wikipedia 的 "History"），信息流里的用户名不值得。 */
+  function isHeadingish(node) {
+    const el = isEl(node) ? node : node.parentElement;
+    if (!el) return false;
+    // 用 closest 而不是「一路向上跳过行内元素」—— 标题元素自己就可能被
+    // CSS 设成 inline，那种写法会直接跳过它、丢掉标题身份。
+    try { return !!el.closest('h1,h2,h3,h4,h5,h6,th,dt,[role="heading"]'); }
+    catch { return false; }
+  }
+
   function inChrome(node) {
     const el = isEl(node) ? node : node.parentElement;
     if (!el) return false;
@@ -198,6 +244,16 @@ var PBXBlocks = (function () {
       // 纯锚点链接（href="#..."）永远是界面：跳转链接、返回顶部、章节编辑。
       // 这类不受 2 词限制，"Skip to main content" 也要挡掉。
       if (words <= 6 && isPureControl(nodes) && isFragmentOnly(nodes)) return false;
+
+      // 用户名、@handle、域名、"863 posts" 这类计数，翻了没意义
+      if (HANDLE_RE.test(text) || DOMAINISH_RE.test(text) || COUNTISH_RE.test(text)) return false;
+
+      // 短的非句子片段只在标题位置才翻。Wikipedia 的 <h2>History</h2> 要翻，
+      // 信息流里的 "Bluesky"、"Pinned"、"Reposted by X" 不翻 —— 否则每条
+      // 推文的用户名下面都挂一句译文，整个时间线会被糊满。
+      if (words < 4 && !SENTENCE_END_RE.test(text) && text.length < 30 && !isHeadingish(nodes[0])) {
+        return false;
+      }
     }
     return true;
   }
