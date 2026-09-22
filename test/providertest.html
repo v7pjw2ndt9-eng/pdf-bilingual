@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>后端参数协商测试台</title>
+<style>
+  body { font: 13px/1.7 ui-monospace, Menlo, monospace; margin: 20px; max-width: 1000px; }
+  #report { background: #f4f4f8; padding: 12px 16px; border-radius: 8px; white-space: pre-wrap; }
+  .pass { color: #1a7f37; } .fail { color: #c01c28; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1 style="font-size:16px">后端参数协商测试台</h1>
+<p style="color:#777">需要同时起 mock：<code>python3 test/mock-openai.py</code>（127.0.0.1:8938）</p>
+<div id="report">跑测试中…</div>
+
+<script type="module">
+// 带时间戳动态导入：静态 import 会吃浏览器缓存，改完代码刷新还跑旧版本
+const { getProvider } = await import('../src/providers.js?v=' + Date.now());
+
+const MOCK = 'http://127.0.0.1:8938';
+const R = [];
+const ok = (c, name, extra = '') => R.push({ pass: !!c, name, extra });
+
+const reset = () => fetch(MOCK + '/_reset').then(r => r.json());
+const log = () => fetch(MOCK + '/_log').then(r => r.json());
+
+const call = (model) => getProvider({
+  provider: 'openai',
+  openai: { apiKey: 'sk-test', baseUrl: MOCK, model },
+})({ system: 'sys', user: 'hello' });
+
+try {
+  /* --- 1. 新推理模型：两样参数都被拒，应当自己谈拢 --- */
+  await reset();
+  const out1 = await call('strict-gpt6-luna');
+  const l1 = await log();
+  ok(out1.includes('译文'), '新模型最终拿到结果', out1);
+  ok(l1.length === 3, '协商用了 3 次请求', '实际 ' + l1.length + ' 次');
+  ok(l1[0].has_max_tokens === true && l1[0].temperature === 0.2,
+     '第 1 次：按最兼容形状发（max_tokens + temperature）', JSON.stringify(l1[0]));
+  ok(l1[1].has_max_completion_tokens === true && l1[1].has_max_tokens === false,
+     '第 2 次：按服务端要求换成 max_completion_tokens', JSON.stringify(l1[1]));
+  ok(l1[2].temperature === null || l1[2].temperature === undefined,
+     '第 3 次：按服务端要求去掉 temperature', JSON.stringify(l1[2]));
+  ok(l1[2].reasoning_effort === 'low',
+     '认出是推理模型后把推理档位压到 low（翻译不需要它先想一轮）',
+     JSON.stringify(l1[2]));
+  ok(l1[0].reasoning_effort === null && l1[1].reasoning_effort === null,
+     '在确认是推理模型之前不乱发 reasoning_effort',
+     JSON.stringify([l1[0].reasoning_effort, l1[1].reasoning_effort]));
+
+  /* --- 2. 学到的形状要记住，第二次别再试错 --- */
+  await reset();
+  const out2 = await call('strict-gpt6-luna');
+  const l2 = await log();
+  ok(out2.includes('译文'), '同一模型第二次仍然成功');
+  ok(l2.length === 1, '第二次一发命中，不再重复试错', '实际 ' + l2.length + ' 次');
+  ok(l2[0].has_max_completion_tokens && !l2[0].temperature,
+     '第二次直接用学到的形状', JSON.stringify(l2[0]));
+
+  /* --- 3. 老模型 / 第三方中转不能被带坏 --- */
+  await reset();
+  const out3 = await call('legacy-gpt41-mini');
+  const l3 = await log();
+  ok(out3.includes('译文'), '老模型仍然成功');
+  ok(l3.length === 1, '老模型一次成功，没有多余试探', '实际 ' + l3.length + ' 次');
+  ok(l3[0].has_max_tokens === true && l3[0].temperature === 0.2,
+     '老模型照旧收到 max_tokens + temperature', JSON.stringify(l3[0]));
+
+  /* --- 4. 只挑剔 temperature 的模型 --- */
+  await reset();
+  const out4 = await call('notemp-model');
+  const l4 = await log();
+  ok(out4.includes('译文'), '只拒 temperature 的模型也能谈拢');
+  ok(l4.length === 2, '这种只需 2 次', '实际 ' + l4.length + ' 次');
+  ok(l4[1].has_max_tokens === true, '不该误伤 max_tokens', JSON.stringify(l4[1]));
+
+  /* --- 4b. 拒 temperature 但也不认 reasoning_effort：要能再摘一层 --- */
+  await reset();
+  const out4b = await call('noreason-model');
+  const l4b = await log();
+  ok(out4b.includes('译文'), '不认识 reasoning_effort 的服务端也能谈拢', out4b);
+  ok(l4b[l4b.length - 1].reasoning_effort === null,
+     '被拒后把 reasoning_effort 摘掉', JSON.stringify(l4b[l4b.length - 1]));
+
+  /* --- 4c. 老模型不该收到 reasoning_effort --- */
+  ok(l3[0].reasoning_effort === null, '老模型不该收到 reasoning_effort',
+     JSON.stringify(l3[0]));
+
+  /* --- 5. 报错要把服务端的原因带出来（这就是"不知道为啥"的根源） --- */
+  await reset();
+  let msg = '';
+  try { await call('badkey-model'); } catch (e) { msg = String(e.message); }
+  ok(/401/.test(msg), '错误里有状态码', msg);
+  ok(/Incorrect API key/i.test(msg), '错误里带上了 API 给的真实原因', msg);
+  ok(!msg.includes('\n'), '错误是单行的（各处显示都取第一行，多行会把原因截掉）',
+     JSON.stringify(msg));
+  ok(msg.split('\n')[0].includes('Incorrect API key'),
+     '按显示逻辑取第一行后原因仍在', msg.split('\n')[0]);
+
+  /* --- 6. 401 不该触发参数试错 --- */
+  const l5 = await log();
+  ok(l5.length === 1, '401 只发一次，不做无谓的参数调整', '实际 ' + l5.length + ' 次');
+} catch (e) {
+  ok(false, '测试执行异常', String(e && e.message || e));
+}
+
+const failed = R.filter(r => !r.pass);
+const el = document.getElementById('report');
+el.textContent = [
+  `断言 ${R.length} 条，通过 ${R.length - failed.length}，失败 ${failed.length}`, '',
+  ...R.map(r => `${r.pass ? '✓' : '✗'} ${r.name}${r.extra ? '\n      → ' + r.extra : ''}`),
+].join('\n');
+el.className = failed.length ? 'fail' : 'pass';
+window.PROVTEST = { total: R.length, failed: failed.map(f => f.name + ' → ' + f.extra) };
+</script>
+</body>
+</html>

@@ -178,6 +178,37 @@ PBXBlocks.revert(document);
 ok(document.querySelectorAll('.pbx-tr').length === 0, '还原后译文节点清空');
 ok(document.querySelectorAll('[data-pbx]').length === 0, '还原后处理标记清空');
 
+/* --- 10. 信息流场景：重渲染擦除、虚拟化回收、增量扫描 --- */
+{
+  const host = document.createElement('div');
+  host.id = 't-feed';
+  host.innerHTML = '<div class="item">A feed post long enough to count as real content here.</div>';
+  document.getElementById('fixture').append(host);
+
+  const opts = { targetIsCJK: true, skipUI: true };
+  const first = PBXBlocks.collectUnits(host, opts);
+  ok(first.length === 1, '增量扫描：只扫子树也能抓到单元', '实得 ' + first.length);
+
+  PBXBlocks.insert(first[0], '一条足够长、算得上真实内容的信息流帖子。');
+  ok(PBXBlocks.collectUnits(host, opts).length === 0, '已插译文的段落不再被重复抓取');
+
+  // 框架重渲染：把我们插的译文节点擦掉（React 重建子树就是这个效果）
+  host.querySelector('.pbx-tr').remove();
+  const after = PBXBlocks.collectUnits(host, opts);
+  ok(after.length === 1, '译文被框架擦掉后能重新抓到（自愈）', '实得 ' + after.length);
+
+  // 虚拟化回收：条目整个摘掉再装一个全新的回来
+  host.innerHTML = '';
+  ok(PBXBlocks.collectUnits(host, opts).length === 0, '条目摘掉后不再产生单元');
+  host.innerHTML = '<div class="item">A feed post long enough to count as real content here.</div>';
+  const recycled = PBXBlocks.collectUnits(host, opts);
+  ok(recycled.length === 1,
+     '虚拟化回收：滚回去的同一条内容要能再次翻译',
+     '实得 ' + recycled.length + '（为 0 说明判重用了文本字符串集合，会永久挡住回收的条目）');
+
+  host.remove();
+}
+
 /* ---------------------------------------------------------------- 报告 */
 const failed = R.filter(r => !r.pass);
 const lines = [
