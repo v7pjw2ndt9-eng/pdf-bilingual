@@ -17,6 +17,8 @@
     on: false,
     settings: null,
     units: new Map(),      // key -> unit
+    byAnchor: new WeakMap(),// 锚点节点 -> unit，防止同一段重复排队
+    dirty: new Set(),      // 待重扫的子树根
     queue: [],             // 等着送去翻译的 key
     inflight: false,
     io: null,              // 可见性观察
@@ -97,37 +99,53 @@
 
   /* --------------------------------------------------- 扫描与可见性 */
 
-  function scan() {
-    const found = B.collectUnits(document.body, {
-      targetIsCJK: /中文|chinese|zh/i.test(S.settings.targetLang || ''),
-      skipUI: S.settings.webSkipUI !== false,
-    });
-
+  /**
+   * 只扫变动过的子树。信息流是无限滚动的，每次 DOM 变动都从 document.body
+   * 重扫一遍，页面越长越卡。
+   */
+  function scan(roots) {
+    const targets = roots && roots.length ? topRoots(roots) : [document.body];
     let added = 0;
-    for (const u of found) {
-      // collectUnits 每次都从头编号，这里用原文+锚点判重
-      const id = u.text.slice(0, 120) + '|' + nodePath(u.anchor);
-      if (S.seen.has(id)) continue;
-      S.seen.add(id);
-
-      const key = 'u' + (S.nextKey++);
-      u.key = key;
-      S.units.set(key, u);
-      observe(u);
-      added++;
+    for (const root of targets) {
+      if (!root || !root.isConnected) continue;
+      const found = B.collectUnits(root, {
+        targetIsCJK: /中文|chinese|zh/i.test(S.settings.targetLang || ''),
+        skipUI: S.settings.webSkipUI !== false,
+      });
+      for (const u of found) {
+        // 判重靠 DOM 本身（webblocks 里看锚点后面有没有译文节点）加这个
+        // WeakMap（挡住同一轮里排过队但还没插占位符的）。
+        // 不能用「文本+路径」的字符串集合 —— 虚拟化列表把条目摘掉再装回来时，
+        // 那种集合会永久挡住它，导致滚回去的内容再也拿不到译文。
+        if (S.byAnchor.has(u.anchor)) continue;
+        u.key = 'u' + (S.nextKey++);
+        S.byAnchor.set(u.anchor, u);
+        S.units.set(u.key, u);
+        observe(u);
+        added++;
+      }
     }
+    prune();
     return added;
   }
 
-  function nodePath(node) {
-    let el = node && node.nodeType === 1 ? node : node?.parentElement;
-    const parts = [];
-    while (el && el !== document.body && parts.length < 6) {
-      const p = el.parentElement;
-      parts.push(el.tagName + (p ? ':' + Array.prototype.indexOf.call(p.children, el) : ''));
-      el = p;
+  /** 去掉被其它根包含的根，免得同一片 DOM 扫好几遍。 */
+  function topRoots(list) {
+    const uniq = [...new Set(list)].filter((el) => el && el.nodeType === 1 && el.isConnected);
+    return uniq.filter((el) => !uniq.some((o) => o !== el && o.contains(el)));
+  }
+
+  /**
+   * 虚拟化列表会把滚出视口的条目从 DOM 里摘掉。不清理的话 units 和
+   * IntersectionObserver 的观察目标会随滚动无限堆积。
+   */
+  function prune() {
+    if (S.units.size < 400) return;
+    for (const [key, u] of S.units) {
+      if (u.anchor && u.anchor.isConnected) continue;
+      if (u.target) S.io && S.io.unobserve(u.target);
+      S.units.delete(key);
     }
-    return parts.join('/');
   }
 
   /** 只翻进入视口附近的段落 —— 长文章一次全翻既慢又浪费 token。 */
@@ -154,13 +172,23 @@
   function watchDom() {
     if (S.mo) return;
     S.mo = new MutationObserver((records) => {
-      // 自己插的译文会触发变动，别把自己算进去
-      const real = records.some((r) =>
-        Array.from(r.addedNodes).some((n) =>
-          n.nodeType === 1 ? !n.classList?.contains('pbx-tr') : n.nodeType === 3));
-      if (!real) return;
+      for (const r of records) {
+        let real = false;
+        for (const n of r.addedNodes) {
+          // 自己插的译文会触发变动，别把自己算进去
+          if (n.nodeType === 1 && n.classList && n.classList.contains('pbx-tr')) continue;
+          if (n.nodeType === 1 || n.nodeType === 3) { real = true; break; }
+        }
+        if (real && r.target) S.dirty.add(r.target);
+      }
+      if (!S.dirty.size) return;
       clearTimeout(S.rescanTimer);
-      S.rescanTimer = setTimeout(() => { if (S.on) scan(); }, 600);
+      S.rescanTimer = setTimeout(() => {
+        if (!S.on) return;
+        const roots = [...S.dirty];
+        S.dirty.clear();
+        scan(roots);
+      }, 500);
     });
     S.mo.observe(document.body, { childList: true, subtree: true });
   }
@@ -170,7 +198,6 @@
   async function start() {
     S.settings = await chrome.runtime.sendMessage({ type: 'get-settings' });
     S.on = true;
-    S.seen = S.seen || new Set();
     S.nextKey = S.nextKey || 0;
     document.documentElement.classList.add('pbx-active');
     document.documentElement.style.setProperty('--pbx-color', S.settings.transColor || '#1a5fb4');
@@ -189,7 +216,8 @@
     clearTimeout(S.rescanTimer);
     S.queue = [];
     S.units.clear();
-    S.seen = new Set();
+    S.byAnchor = new WeakMap();
+    S.dirty.clear();
     S.nextKey = 0;
     S.done = S.total = 0;
     S.port?.postMessage({ type: 'abort' });
