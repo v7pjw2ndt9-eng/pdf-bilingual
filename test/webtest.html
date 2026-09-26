@@ -82,7 +82,10 @@
   <footer><span>© 2026</span> <a href="#">Terms</a></footer>
 </div>
 
-<script src="../src/webblocks.js"></script>
+<script>
+// 带时间戳加载：静态 src 会吃浏览器缓存，改完代码刷新还在跑旧版本
+document.write('<script src="../src/webblocks.js?v=' + Date.now() + '"><\/script>');
+</script>
 <script>
 const R = [];
 const ok = (cond, name, extra='') => R.push({ pass: !!cond, name, extra });
@@ -206,6 +209,75 @@ ok(document.querySelectorAll('[data-pbx]').length === 0, '还原后处理标记�
      '虚拟化回收：滚回去的同一条内容要能再次翻译',
      '实得 ' + recycled.length + '（为 0 说明判重用了文本字符串集合，会永久挡住回收的条目）');
 
+  host.remove();
+}
+
+/* --- 11. display:contents 包装层不能吞掉整棵子树 --- */
+{
+  const host = document.createElement('div');
+  host.id = 't-contents';
+  host.innerHTML = '<div style="display:contents">' +
+    '<div>Content hidden behind a display contents wrapper, which generates no box.</div>' +
+    '</div>';
+  document.getElementById('fixture').append(host);
+  const got = PBXBlocks.collectUnits(host, { targetIsCJK: true, skipUI: true });
+  ok(got.length === 1 && /display contents wrapper/.test(got[0].text),
+     'display:contents 包装层下的正文照常抓取',
+     got.length ? got[0].text.slice(0, 60)
+                : '抓到 0 条（checkVisibility 对 display:contents 返回 false，当成隐藏就会丢掉整棵子树）');
+  host.remove();
+}
+
+/* --- 11b. 透明层里的多个段落要分开，不能挤成一条 --- */
+{
+  const host = document.createElement('div');
+  host.id = 't-contents-multi';
+  host.innerHTML = '<div style="display:contents">' +
+    '<p>First paragraph inside the transparent wrapper, long enough to count.</p>' +
+    '<p>Second paragraph inside the same transparent wrapper, also long enough.</p>' +
+    '</div>';
+  document.getElementById('fixture').append(host);
+  const got = PBXBlocks.collectUnits(host, { targetIsCJK: true, skipUI: true });
+  ok(got.length === 2,
+     '透明层里的两段各自独立（当成行内会把整层挤成一条）',
+     '实得 ' + got.length + ' 条：' + got.map(u => u.text.slice(0, 40)).join(' || '));
+  ok(got[0] && !got[0].text.includes('Second paragraph'),
+     '第一段不含第二段内容', got[0] && got[0].text.slice(0, 70));
+  host.remove();
+}
+
+/* --- 12. 导航容器里的长文本也要跳过 --- */
+{
+  const host = document.createElement('div');
+  host.id = 't-nav';
+  host.innerHTML = '<nav><span>AI Mode All Images Videos News Forums Shopping More Tools</span></nav>';
+  document.getElementById('fixture').append(host);
+  const got = PBXBlocks.collectUnits(host, { targetIsCJK: true, skipUI: true });
+  ok(got.length === 0, '导航栏里的长标签串也跳过（只按词数卡拦不住）',
+     got.map(u => u.text).join(' | '));
+  host.remove();
+}
+
+/* --- 13. open shadow DOM 里的内容 --- */
+{
+  const host = document.createElement('div');
+  host.id = 't-shadow';
+  document.getElementById('fixture').append(host);
+  const inner = document.createElement('div');
+  host.append(inner);
+  const sr = inner.attachShadow({ mode: 'open' });
+  sr.innerHTML = '<p>Text living inside an open shadow root, as web components do.</p>';
+
+  const got = PBXBlocks.collectUnits(host, { targetIsCJK: true, skipUI: true });
+  ok(got.length === 1 && /open shadow root/.test(got[0].text),
+     'open shadow root 里的正文能抓到', got.length ? got[0].text.slice(0, 60) : '抓到 0 条');
+
+  if (got.length) {
+    PBXBlocks.insert(got[0], '存在于 open shadow root 中的文字，就像 Web Components 那样。');
+    ok(sr.querySelector('.pbx-tr'), '译文插进了 shadow root 内部');
+    PBXBlocks.revert(document);
+    ok(!sr.querySelector('.pbx-tr'), '还原能清到 shadow root 里');
+  }
   host.remove();
 }
 

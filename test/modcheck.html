@@ -12,7 +12,7 @@ window.chrome = {
              onInstalled: listener, onConnect: listener, connect: () => ({
                onMessage: listener, onDisconnect: listener, postMessage: noop }),
              sendMessage: noop, id: 'test' },
-  commands: { onCommand: listener },
+  commands: { onCommand: listener, async getAll() { return []; } },
   storage: { local: { async get() { return {}; }, async set() {} }, onChanged: listener },
   tabs: { async query() { return [{}]; }, async update() {}, async create() {} },
   webNavigation: { onBeforeNavigate: listener },
