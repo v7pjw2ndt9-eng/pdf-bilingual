@@ -36,9 +36,12 @@ var PBXBlocks = (function () {
   ]);
 
   // 界面外壳：里面的短文本是导航/按钮标签，翻了只有噪音
-  const CHROME_SEL = 'nav, header, footer, aside, [role="navigation"], [role="banner"], ' +
-                     '[role="contentinfo"], [role="search"], [role="menu"], [role="tablist"], ' +
-                     'button, [role="button"], .nav, .navbar, .menu, .breadcrumb, .pagination';
+  // 纯导航容器：里面不会有正文，一律跳过
+  const NAV_SEL = 'nav, [role="navigation"], [role="tablist"], [role="menubar"], [role="menu"], ' +
+                  '.navbar, .breadcrumb, .pagination';
+  // 可能夹带正文的外壳：只跳过其中的短标签
+  const CHROME_SEL = NAV_SEL + ', header, footer, aside, [role="banner"], [role="contentinfo"], ' +
+                     '[role="search"], button, [role="button"], .nav, .menu';
 
   const OURS = 'pbx-tr';                    // 我们插进去的译文块
   const MARK = 'data-pbx';                  // 处理过的标记
@@ -73,7 +76,7 @@ var PBXBlocks = (function () {
    */
   const INLINE_DISPLAY = new Set([
     'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table',
-    'ruby', 'ruby-base', 'ruby-text', 'contents', 'math',
+    'ruby', 'ruby-base', 'ruby-text', 'math',
   ]);
 
   // 这几个无论 CSS 怎么写都不该切断段落
@@ -92,34 +95,56 @@ var PBXBlocks = (function () {
 
   const dispCache = new WeakMap();
 
+  function displayOf(el) {
+    if (dispCache.has(el)) return dispCache.get(el);
+    let d = '';
+    try { d = getComputedStyle(el).display || ''; } catch { d = ''; }
+    dispCache.set(el, d);
+    return d;
+  }
+
   function isInline(el) {
     if (ALWAYS_INLINE.has(el.tagName)) return true;
     if (ALWAYS_BLOCK.has(el.tagName)) return false;
-    if (dispCache.has(el)) return dispCache.get(el);
-    let inline = INLINE.has(el.tagName);        // 取不到样式时的兜底
-    try {
-      const d = getComputedStyle(el).display;
-      if (d) inline = INLINE_DISPLAY.has(d);
-    } catch { /* 用兜底值 */ }
-    dispCache.set(el, inline);
-    return inline;
+    const d = displayOf(el);
+    return d ? INLINE_DISPLAY.has(d) : INLINE.has(el.tagName);   // 取不到样式时按标签兜底
   }
 
   /**
-   * checkVisibility 是原生实现，比取整份计算样式快一个量级，
-   * 而且一次就把 display:none、visibility、opacity:0、content-visibility 都覆盖了。
+   * display:contents 是「透明层」：自己不生成盒子，子节点直接参与父级布局。
+   * 既不能当隐藏（会丢整棵子树），也不能当行内 —— 当行内的话里面的块级段落
+   * 会被一起卷进同一个游程。Google AI Mode 整篇回答就是这样挤成一条的。
+   * 正确做法是递归进去，但把子节点当作父元素的子节点来处理。
+   */
+  function isTransparent(el) {
+    if (ALWAYS_INLINE.has(el.tagName) || ALWAYS_BLOCK.has(el.tagName)) return false;
+    return displayOf(el) === 'contents';
+  }
+
+  /**
+   * checkVisibility 是原生实现，比取整份计算样式快一个量级。但有两个坑：
+   *
+   * 1. display:contents 的元素自己不生成盒子（这正是它的用途 —— 让包装层从
+   *    布局树里消失、子节点照常参与父级布局），checkVisibility 按规范返回
+   *    false。当成隐藏就会把整棵子树丢掉。Google AI Mode 的正文就藏在这样
+   *    一个 wrapper 下面，整页 5000 字只能抓到 3 条无障碍标签。
+   *
+   * 2. contentVisibilityAuto 会把 content-visibility:auto 的屏幕外内容判为
+   *    不可见。那些文字在 DOM 里、滚过去就会显示，对翻译器来说该算可见，
+   *    所以这个选项不能开。
    */
   function isHidden(el) {
     if (el.hidden || el.getAttribute?.('aria-hidden') === 'true') return true;
+
     if (typeof el.checkVisibility === 'function') {
-      return !el.checkVisibility({
-        checkOpacity: true,
-        checkVisibilityCSS: true,
-        contentVisibilityAuto: true,
-      });
+      if (el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+      // 返回 false 的少数情况才值得多花一次计算样式去甄别
+      try { return getComputedStyle(el).display !== 'contents'; } catch { return true; }
     }
+
     try {
       const st = getComputedStyle(el);
+      if (st.display === 'contents') return false;
       return st.display === 'none' || st.visibility === 'hidden' || parseFloat(st.opacity) === 0;
     } catch { return false; }
   }
@@ -168,6 +193,7 @@ var PBXBlocks = (function () {
       if (shouldSkip(n)) return;
       boundary = true;
       for (const c of n.childNodes) visit(c);
+      if (n.shadowRoot) for (const c of n.shadowRoot.childNodes) visit(c);
       boundary = true;
     };
 
@@ -197,6 +223,18 @@ var PBXBlocks = (function () {
     let el = isEl(node) ? node : node.parentElement;
     while (el && isInline(el)) el = el.parentElement;
     return el;
+  }
+
+  /** 纯导航容器里不会有正文，长短都跳过。 */
+  const navCache = new WeakMap();
+  function inNav(node) {
+    const el = isEl(node) ? node : node.parentElement;
+    if (!el) return false;
+    if (navCache.has(el)) return navCache.get(el);
+    let hit = false;
+    try { hit = !!el.closest(NAV_SEL); } catch { hit = false; }
+    navCache.set(el, hit);
+    return hit;
   }
 
   const chromeCache = new WeakMap();
@@ -235,7 +273,11 @@ var PBXBlocks = (function () {
 
     if (opts.skipUI) {
       const words = text.split(/\s+/).filter(Boolean).length;
-      // 导航/页眉页脚/按钮里的短标签是界面文字，翻了满屏噪音
+      // 导航栏里不会有正文，长短都跳过。Google 那条
+      // "AI Mode All Images Videos News Forums Shopping More Tools" 有 9 个词，
+      // 只按词数卡是拦不住的。
+      if (inNav(nodes[0])) return false;
+      // 页眉页脚可能夹带正文，只跳其中的短标签
       if (words < 5 && inChrome(nodes[0])) return false;
       // 纯链接标签：游程里没有一个裸文本节点，内容全在链接/按钮里，且只有一两个词。
       // Wikipedia 每个小节标题后面的 [edit] 就是这种，不挡住会在每个标题下
@@ -327,18 +369,29 @@ var PBXBlocks = (function () {
       let run = [];
       const flush = () => { if (run.length) { addUnit(run); run = []; } };
 
-      for (const node of Array.from(el.childNodes)) {
-        if (isText(node)) {
-          run.push(node);
-        } else if (isEl(node)) {
+      // 把一批子节点并进当前游程上下文。display:contents 的透明层会递归调用
+      // 它自己，这样层里的块级子元素仍然能正常断开游程。
+      const consume = (parent) => {
+        for (const node of Array.from(parent.childNodes)) {
+          if (isText(node)) { run.push(node); continue; }
+          if (!isEl(node)) continue;
+
           // 自己插的译文当作游程边界：不 flush 的话它两侧的文本会被并成
           // 一个「新」单元，绕过判重又翻一遍。
           if (isOurs(node)) { flush(); continue; }
+
           if (shouldSkip(node)) {
             // 被跳过的行内元素（图标、输入框）不该把段落劈开
             if (!isInline(node)) flush();
             continue;
           }
+
+          if (isTransparent(node)) {
+            consume(node);
+            if (node.shadowRoot) consume(node.shadowRoot);
+            continue;
+          }
+
           if (isInline(node)) {
             // 连续 <br> 是分段（老式 HTML、论坛正文全靠它），必须断开，
             // 否则整页会并成一个巨型单元。单个 <br> 只当空格 —— 有些站点
@@ -350,7 +403,12 @@ var PBXBlocks = (function () {
             walk(node);
           }
         }
-      }
+      };
+
+      consume(el);
+      // 进入 open shadow root。Web Components 的内容不在 childNodes 里，
+      // 不下去的话整块看不见。closed 的拿不到，只能放弃。
+      if (el.shadowRoot) consume(el.shadowRoot);
       flush();
     };
 
@@ -416,10 +474,15 @@ var PBXBlocks = (function () {
   }
 
   function revert(root = document) {
-    root.querySelectorAll('.' + OURS).forEach((el) => el.remove());
-    root.querySelectorAll('[' + MARK + ']').forEach((el) => el.removeAttribute(MARK));
-    root.querySelectorAll('.pbx-hidden').forEach((el) => el.classList.remove('pbx-hidden'));
-    root.querySelectorAll('.pbx-hidden-text').forEach((el) => el.classList.remove('pbx-hidden-text'));
+    const sweep = (r) => {
+      r.querySelectorAll('.' + OURS).forEach((el) => el.remove());
+      r.querySelectorAll('[' + MARK + ']').forEach((el) => el.removeAttribute(MARK));
+      r.querySelectorAll('.pbx-hidden').forEach((el) => el.classList.remove('pbx-hidden'));
+      r.querySelectorAll('.pbx-hidden-text').forEach((el) => el.classList.remove('pbx-hidden-text'));
+      // 译文可能插在 shadow root 里，还原时也得进去扫
+      r.querySelectorAll('*').forEach((el) => { if (el.shadowRoot) sweep(el.shadowRoot); });
+    };
+    sweep(root);
   }
 
   return {
