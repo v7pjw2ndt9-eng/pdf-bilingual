@@ -17,6 +17,8 @@
   hr { border: 0; border-top: 1px solid #d8d8e0; margin: 12px 0 8px; }
   .kbd { opacity: .65; font-size: 11px; margin-left: 4px; }
   .muted { color: #86868f; font-size: 12px; margin: 10px 0 0; }
+  .warn { color: #b3541e; font-size: 12px; margin: 8px 0 0; line-height: 1.5; }
+  .warn a { color: inherit; }
 </style>
 </head>
 <body>
@@ -44,13 +46,14 @@
 <div class="row"><label class="chk"><input type="checkbox" id="interceptPdf"> 自动接管 PDF 链接</label></div>
 <div class="row"><label class="chk"><input type="checkbox" id="autoTranslate"> 打开即翻译</label></div>
 
-<button class="primary" id="translatePage">翻译此网页 <span class="kbd">Alt+T</span></button>
+<button class="primary" id="translatePage">翻译此网页 <span class="kbd" id="kbd"></span></button>
 <div class="row"><label class="chk"><input type="checkbox" id="siteAuto"> 总是自动翻译此站点</label></div>
 <hr>
 <button id="openHere">用 PDF 阅读器打开当前页</button>
 <button id="openBlank">打开本地 PDF</button>
 <button id="opts">设置…</button>
 
+<p class="warn" id="kbdWarn" hidden></p>
 <p class="muted" id="tip"></p>
 
 <script type="module" src="popup.js"></script>

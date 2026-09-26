@@ -24,6 +24,28 @@ if (host) {
   $('siteAuto').onchange = () => chrome.runtime.sendMessage({ type: 'toggle-site-auto', host });
 }
 
+// 显示快捷键的「实际绑定」，而不是写死一段文字。
+// Chrome 在快捷键冲突时是静默不绑定的 —— 写死文字的话，用户按了没反应
+// 只会以为扩展坏了。Linux 上 Alt+字母 常被窗口管理器或 GTK 助记符抢走。
+try {
+  const cmds = await chrome.commands.getAll();
+  const c = cmds.find((x) => x.name === 'toggle-translate');
+  if (c && c.shortcut) {
+    $('kbd').textContent = c.shortcut;
+  } else {
+    $('kbd').textContent = '未绑定';
+    const w = $('kbdWarn');
+    w.hidden = false;
+    w.innerHTML = '快捷键没能绑定（多半和别的扩展或系统快捷键冲突）。' +
+                  '<a href="#" id="kbdLink">点这里去设置一个</a>。';
+    $('kbdLink').onclick = (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+      window.close();
+    };
+  }
+} catch { $('kbd').textContent = ''; }
+
 $('translatePage').disabled = !isWeb;
 $('translatePage').onclick = async () => {
   if (!tab?.id) return;
