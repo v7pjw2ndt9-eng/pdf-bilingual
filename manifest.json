@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PDF 与网页双语阅读器",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "按段落（而非按行）翻译 PDF 和网页，原文译文对照。支持 Claude / GPT / 本地订阅桥接。",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -59,7 +59,8 @@
   "commands": {
     "toggle-translate": {
       "suggested_key": {
-        "default": "Alt+T"
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
       },
       "description": "翻译 / 还原当前网页"
     }

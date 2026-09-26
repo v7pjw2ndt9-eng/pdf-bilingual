@@ -8,8 +8,14 @@
 
 ## 网页翻译
 
-装好后在任意网页按 **Alt+T**（或点扩展图标 → 翻译此网页），译文会插在每个段落下方。
-再按一次还原。可以给常读的站点勾「总是自动翻译此站点」。
+装好后在任意网页按 **Ctrl+Shift+Y**（macOS 是 **Cmd+Shift+Y**），或点扩展图标 →
+翻译此网页，译文会插在每个段落下方。再按一次还原。常读的站点可以勾「总是自动翻译此站点」。
+
+> **快捷键没反应？** Chrome 在快捷键冲突时是**静默不绑定**的，按了没反应看不出原因。
+> 弹窗里显示的是**实际绑定**（没绑上会写「未绑定」并给出跳转链接），
+> 也可以直接去 `chrome://extensions/shortcuts` 自己设一个。
+> Linux 上尤其容易踩到 —— `Alt+字母` 常被窗口管理器或 GTK 菜单助记符抢走，
+> 所以默认键从早期版本的 `Alt+T` 换成了 `Ctrl+Shift+Y`。
 
 网页这边的难点和 PDF 相反 —— 段落结构本来就在 DOM 里，问题是怎么**不把它切碎**、
 也不把整块界面文字裹进来：
@@ -27,6 +33,14 @@
   用来挡掉 Wikipedia 每个标题后面的 `[edit]`、`Skip to main content` 这类东西。
   这是结构判断，不是针对具体站点的硬编码。
 - **已是中文的段落跳过** —— 中日韩字符占比超过 30% 就不翻，省 token。
+- **`display:contents` 透明层** —— 这类元素自己不生成盒子、子节点直接参与父级布局。
+  两个坑都踩过：`checkVisibility()` 对它返回 `false`，当成隐藏会**丢掉整棵子树**；
+  当成行内又会把层里的块级段落**全挤成一条**。正确做法是递归进去、子节点按父级的
+  子节点处理。Google AI Mode 的正文就藏在这种包装层下面。
+- **open shadow DOM** —— Web Components 的内容不在 `childNodes` 里，会一路走进去，
+  译文也能插进 shadow root、还原时清得掉。`closed` 的拿不到。
+- **导航容器整体跳过** —— `nav` / `role=navigation` / `tablist` 里不会有正文，
+  长短都跳过；页眉页脚可能夹带正文，只跳其中的短标签。
 - **懒加载** —— 只翻进入视口附近（800px 内）的段落。长文章不会一上来就把全文烧掉。
 - **动态内容** —— MutationObserver 盯着 DOM，SPA 路由切换、无限滚动加载出来的
   新内容会自动接上。
@@ -214,10 +228,11 @@ python3 -m http.server 8935 --directory .
   （老模型/第三方中转）、`notemp-*` 只拒 `temperature`、`noreason-*` 还不认
   `reasoning_effort`、`badkey-*` 返回 401。断言覆盖「能谈拢」「学到的形状会记住」
   「老模型不被带坏」「认出推理模型后压低推理档位」「报错带上服务端原文」。
-- `http://localhost:8935/test/webtest.html` —— 网页段落划分，39 条断言，
+- `http://localhost:8935/test/webtest.html` —— 网页段落划分，46 条断言，
   样本里塞了行内标记、嵌套列表、行内代码、代码块、KaTeX、表格、
   已是中文的段落、隐藏元素、纯数字、`translate="no"`、导航/页脚短标签、
-  单/双 `<br>`、锚点跳转链接，以及信息流场景（框架重渲染擦除后自愈、
+  单/双 `<br>`、锚点跳转链接、`display:contents` 透明层（单段与多段）、
+  open shadow DOM、导航容器，以及信息流场景（框架重渲染擦除后自愈、
   虚拟化条目回收、增量子树扫描）。全绿才算过。
 - 真实页面：`./tools/fetch-real-pages.sh` 抓 Wikipedia / arXiv / MDN 到
   `test/real/`（注入 `<base href>` 让原站 CSS 照常加载），打开后看 `window.PROBE`。
@@ -234,3 +249,4 @@ python3 -m http.server 8935 --directory .
 - 网页只翻主文档，`<iframe>` 里的内容不翻。
 - 网页译文是纯文本，原文里的链接和加粗不会在译文里重现（原文就在上面一行）。
 - Chrome 应用商店页、`chrome://` 开头的页面注入不了脚本，翻不了。
+- `closed` 模式的 shadow DOM 拿不到内容（`open` 的没问题）。
