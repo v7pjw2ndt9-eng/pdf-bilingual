@@ -9,6 +9,11 @@ test/*.pdf
 # 真实页面快照 —— 用 tools/fetch-real-pages.sh 现抓，同样是第三方版权材料。
 test/real/
 
+# 扩展签名私钥 —— 绝不入库。
+# manifest 里的 key 字段是公钥（公开无害），ID 由它推导，和文件夹路径无关。
+# 私钥只有将来要打 .crx 时才用得上，未打包加载完全不需要。
+tools/extension-private-key.pem
+
 .DS_Store
 *.pyc
 __pycache__/

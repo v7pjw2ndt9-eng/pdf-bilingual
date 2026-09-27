@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "PDF 与网页双语阅读器",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "按段落（而非按行）翻译 PDF 和网页，原文译文对照。支持 Claude / GPT / 本地订阅桥接。",
   "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1rLRahwKMkWy4tp9Ckkyve1fagzrvuSgx1TWP3shoFsNnCwxFD+2v3nhda8P/31Ve/AtEfHgMBxb9JgR8mgrIJ9BbS4Sq97iQym2sj9P4x8WaFD0NnRCmQj+4IspTUtmkGaxcOfaMDP+6tpsXjZCpiM7UhROE8WTCeoyeALQxbtFSiwmcl9vP1YRhsobKdAz6S3+kwDVSbdqdaeirBh8d67ZbbLtrRtAuJNL0qyQRQaebF58U6NV/+CJ4IEad2s9kFyoyH5aMgvI0KybOfxuR+IhkgBFLTE61061ORY3YO3Piih2B/KQOsnLGVStFQp5pnFea2AHl1A5BzuNtKKBOwIDAQAB",
   "permissions": [
     "storage",
     "unlimitedStorage",

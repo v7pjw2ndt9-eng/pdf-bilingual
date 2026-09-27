@@ -103,6 +103,29 @@ API 调用放在 background service worker 里，不在页面上下文 —— Ch
 3. 点「加载已解压的扩展程序」，选这个目录
 4. 想读本地 PDF 的话，在扩展详情页把「允许访问文件网址」也打开
 
+### 升级：设置不会再丢
+
+manifest 里有个 `key` 字段（RSA 公钥）。**未打包扩展的 ID 默认是 Chrome 从文件夹
+绝对路径算出来的**，而 `chrome.storage.local` 按 ID 隔离 —— 所以过去每次解压到
+新目录都会得到新 ID、拿到一个全新的空存储，API key 和译文缓存全部丢失。
+
+有了 `key`，ID 改为从公钥推导，和路径无关，固定是：
+
+```
+lkpfbbndgpbahcgegiloecpghaenmipc
+```
+
+于是随便解压到哪、删了重装、Mac 和 Linux 上分别装，都是同一个 ID，设置和缓存
+一直在。公钥本身是公开信息，放进仓库无害；私钥只有将来要打 `.crx` 才用得上，
+未打包加载完全不需要（在 `.gitignore` 里明确排除）。
+
+> **这一版升级本身还要再填一次 key。** 因为 ID 会从旧的「按路径算」变成新的
+> 「按公钥算」，这是最后一次。之后就一劳永逸了。
+
+设置页还有「备份与迁移」：可以导出成 JSON（是否包含 API key 由你勾选）再导入，
+用于换机器或以防万一。没有走 `chrome.storage.sync` —— 那会把 API key 传到你的
+Google 账号里，这种事不该默认替你决定；想要的话可以提。
+
 ### 为什么 lib/ 不在仓库里
 
 `lib/` 是 vendored 的 pdf.js，187 个文件约 4MB，其中 169 个是 CJK 字符映射表
@@ -194,7 +217,7 @@ content/           网页侧 content script（懒加载、动态内容、译文�
 options/ popup/    设置页与弹窗
 bridge/bridge.py   本地订阅桥接
 
-test/              五个测试台（见下）
+test/              六个测试台（见下）
 tools/             拉 pdf.js、拉测试样本、抓真实页面的脚本
 lib/               pdf.js 4.10.38（不入库，跑 tools/fetch-pdfjs.sh 生成）
 ```
@@ -228,6 +251,10 @@ python3 -m http.server 8935 --directory .
   （老模型/第三方中转）、`notemp-*` 只拒 `temperature`、`noreason-*` 还不认
   `reasoning_effort`、`badkey-*` 返回 401。断言覆盖「能谈拢」「学到的形状会记住」
   「老模型不被带坏」「认出推理模型后压低推理档位」「报错带上服务端原文」。
+- `http://localhost:8935/test/optionstest.html` —— 设置备份/迁移，13 条断言。
+  用内存对象顶替 `chrome.storage`，把真正的 `options.js` 跑在普通网页里，
+  截住导出的 Blob 做完整往返。重点覆盖两种危险情形：**导入不含 key 的文件时
+  现有 key 不能被空值抹掉**、**导入非法 JSON 不能破坏现有设置**。
 - `http://localhost:8935/test/webtest.html` —— 网页段落划分，46 条断言，
   样本里塞了行内标记、嵌套列表、行内代码、代码块、KaTeX、表格、
   已是中文的段落、隐藏元素、纯数字、`translate="no"`、导航/页脚短标签、
