@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>设置备份/迁移测试台</title>
+<style>
+  body { font: 13px/1.7 ui-monospace, Menlo, monospace; margin: 20px; max-width: 1000px; }
+  #report { background: #f4f4f8; padding: 12px 16px; border-radius: 8px; white-space: pre-wrap; }
+  .pass { color: #1a7f37; } .fail { color: #c01c28; font-weight: bold; }
+  #host { display: none; }
+</style>
+</head>
+<body>
+<h1 style="font-size:16px">设置备份/迁移测试台</h1>
+<div id="report">跑测试中…</div>
+<div id="host"></div>
+
+<script>
+// 用内存对象顶替 chrome.storage，把真正的 options.js 跑在普通网页里
+const MEM = {};
+window.chrome = {
+  storage: {
+    local: {
+      async get(k) { return k ? { [k]: MEM[k] } : { ...MEM }; },
+      async set(o) { Object.assign(MEM, JSON.parse(JSON.stringify(o))); },
+    },
+    onChanged: { addListener() {} },
+  },
+  runtime: { getURL: (p) => '/' + p, openOptionsPage() {}, sendMessage() {},
+             onMessage: { addListener() {} }, id: 'test' },
+  tabs: { async query() { return [{}]; }, async create() {}, async update() {} },
+  commands: { onCommand: { addListener() {} }, async getAll() { return []; } },
+};
+
+// 截住导出的下载：不真的存盘，把 Blob 捞出来
+window.__captured = null;
+const realClick = HTMLAnchorElement.prototype.click;
+HTMLAnchorElement.prototype.click = function () {
+  if (this.download && this.href.startsWith('blob:')) {
+    window.__captured = { name: this.download, href: this.href };
+    return;                      // 不触发真实下载
+  }
+  return realClick.apply(this, arguments);
+};
+</script>
+
+<script type="module">
+const R = [];
+const ok = (c, name, extra = '') => R.push({ pass: !!c, name, extra });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+try {
+  // 把 options.html 的结构搬进来，再加载真正的 options.js
+  const html = await (await fetch('/options/options.html')).text();
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  document.getElementById('host').innerHTML = doc.body.innerHTML;
+  await import('/options/options.js?v=' + Date.now());
+  await sleep(120);
+
+  const $ = (id) => document.getElementById(id);
+  ok(!!$('exportBtn') && !!$('importBtn'), '设置页有导出/导入按钮');
+
+  // 填一个假 key 并保存
+  $('anthropic.apiKey').value = 'sk-ant-FAKE-abcdef123456';
+  $('targetLang').value = '简体中文';
+  $('charsPerRequest').value = '2500';
+  $('save').click();
+  await sleep(120);
+  ok(MEM.settings && MEM.settings.anthropic.apiKey === 'sk-ant-FAKE-abcdef123456',
+     '保存写入了存储', JSON.stringify(MEM.settings && MEM.settings.anthropic));
+
+  const grab = async () => {
+    const c = window.__captured;
+    window.__captured = null;
+    if (!c) return null;
+    return { name: c.name, json: JSON.parse(await (await fetch(c.href)).text()) };
+  };
+
+  /* --- 不含 key 的导出 --- */
+  $('exportKeys').checked = false;
+  $('exportBtn').click();
+  await sleep(120);
+  const plain = await grab();
+  ok(plain, '导出触发了下载');
+  ok(plain && plain.json.settings.anthropic.apiKey === '',
+     '默认导出把 API key 抹掉', plain && JSON.stringify(plain.json.settings.anthropic));
+  ok(plain && plain.json.settings.charsPerRequest === 2500,
+     '其它设置照常导出', plain && String(plain.json.settings.charsPerRequest));
+  ok(plain && !plain.name.includes('含key'), '文件名不带"含key"标记', plain && plain.name);
+
+  /* --- 含 key 的导出 --- */
+  $('exportKeys').checked = true;
+  $('exportBtn').click();
+  await sleep(120);
+  const withKey = await grab();
+  ok(withKey && withKey.json.settings.anthropic.apiKey === 'sk-ant-FAKE-abcdef123456',
+     '勾选后导出确实带上 key');
+  ok(withKey && withKey.name.includes('含key'),
+     '带 key 的文件名有明显标记，免得误传', withKey && withKey.name);
+
+  /* --- 导入：空 key 不该覆盖掉现有 key（最危险的一种） --- */
+  const importJson = async (obj) => {
+    const file = new File([JSON.stringify(obj)], 'x.json', { type: 'application/json' });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    $('importFile').files = dt.files;
+    $('importFile').dispatchEvent(new Event('change'));
+    await sleep(150);
+  };
+
+  await importJson({ _app: 'pdf-bilingual', _version: 1,
+    settings: { anthropic: { apiKey: '' }, targetLang: '繁體中文' } });
+  ok(MEM.settings.anthropic.apiKey === 'sk-ant-FAKE-abcdef123456',
+     '导入不含 key 的文件时，现有 key 被保留（不会被空值抹掉）',
+     MEM.settings.anthropic.apiKey);
+  ok(MEM.settings.targetLang === '繁體中文', '导入的其它设置生效', MEM.settings.targetLang);
+
+  /* --- 导入：带 key 的文件应当覆盖 --- */
+  await importJson({ _app: 'pdf-bilingual', _version: 1,
+    settings: { anthropic: { apiKey: 'sk-ant-OTHER-999' } } });
+  ok(MEM.settings.anthropic.apiKey === 'sk-ant-OTHER-999',
+     '导入带 key 的文件会覆盖', MEM.settings.anthropic.apiKey);
+
+  /* --- 导入垃圾文件不能把设置搞坏 --- */
+  const before = JSON.stringify(MEM.settings);
+  const bad = new File(['{ not json at all'], 'b.json', { type: 'application/json' });
+  const dt2 = new DataTransfer(); dt2.items.add(bad);
+  $('importFile').files = dt2.files;
+  $('importFile').dispatchEvent(new Event('change'));
+  await sleep(150);
+  ok(JSON.stringify(MEM.settings) === before, '导入非法 JSON 不会破坏现有设置');
+  ok(/✗/.test($('importState').textContent), '非法 JSON 会给出错误提示',
+     $('importState').textContent);
+} catch (e) {
+  ok(false, '测试执行异常', String((e && e.stack) || e).slice(0, 300));
+}
+
+const failed = R.filter((r) => !r.pass);
+const el = document.getElementById('report');
+el.textContent = [
+  `断言 ${R.length} 条，通过 ${R.length - failed.length}，失败 ${failed.length}`, '',
+  ...R.map((r) => `${r.pass ? '✓' : '✗'} ${r.name}${r.extra ? '\n      → ' + r.extra : ''}`),
+].join('\n');
+el.className = failed.length ? 'fail' : 'pass';
+window.OPTTEST = { total: R.length, failed: failed.map((f) => f.name + ' → ' + f.extra) };
+</script>
+</body>
+</html>
