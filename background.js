@@ -158,7 +158,9 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   return false;
 });
 
-/* 快捷键（默认 Alt+T）*/
+/* 快捷键。默认键在 manifest 里声明（Ctrl+Shift+Y / mac 上 Cmd+Shift+Y）。
+   Chrome 在冲突时是静默不绑定的，所以弹窗会显示 commands.getAll() 读到的
+   实际绑定，而不是写死一段文字。 */
 chrome.commands?.onCommand.addListener(async (cmd) => {
   if (cmd !== 'toggle-translate') return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
