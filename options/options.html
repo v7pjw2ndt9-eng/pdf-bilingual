@@ -131,6 +131,26 @@
 </fieldset>
 
 <fieldset>
+  <legend>备份与迁移</legend>
+  <div class="row"><label>导出设置</label><div class="inline">
+    <button id="exportBtn">下载 JSON</button>
+    <label class="inline" style="font-size:12px"><input type="checkbox" id="exportKeys"> 包含 API key</label>
+  </div></div>
+  <div class="hint">
+    换机器、或者担心设置丢了就导一份。<strong>勾了「包含 API key」的文件等于明文凭证，
+    别乱传。</strong>
+  </div>
+  <div class="row"><label>导入设置</label><div class="inline">
+    <button id="importBtn">选择 JSON</button><span id="importState"></span>
+    <input type="file" id="importFile" accept="application/json,.json" hidden>
+  </div></div>
+  <div class="hint">
+    扩展 ID 已经在 manifest 里用 <code>key</code> 字段钉死，所以正常升级
+    （换目录、重新加载）设置都不会丢，这里只是多一层保险。
+  </div>
+</fieldset>
+
+<fieldset>
   <legend>缓存</legend>
   <div class="row"><label>已缓存段落</label><div class="inline">
     <span id="cacheN">…</span><button id="clearCache">清空</button>

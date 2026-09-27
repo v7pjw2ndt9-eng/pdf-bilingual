@@ -61,6 +61,62 @@ async function init() {
   });
 
   refreshCache();
+  bindBackup();
+}
+
+/**
+ * 设置导出/导入。
+ *
+ * 扩展 ID 已经用 manifest 的 key 字段钉死，换目录重装不会再丢设置了；
+ * 这里是给换机器（作者在 Mac 和 Linux 上都用）和意外情况留的后路。
+ * 没走 chrome.storage.sync —— 那会把 API key 传到 Google 账号里去，
+ * 要不要这么做应该由用户自己决定，不该默认替他选。
+ */
+function bindBackup() {
+  $('exportBtn').onclick = async () => {
+    const s = await loadSettings();
+    const keepKeys = $('exportKeys').checked;
+    const out = JSON.parse(JSON.stringify(s));
+    if (!keepKeys) {
+      if (out.anthropic) out.anthropic.apiKey = '';
+      if (out.openai) out.openai.apiKey = '';
+    }
+    const blob = new Blob(
+      [JSON.stringify({ _app: 'pdf-bilingual', _version: 1, settings: out }, null, 2)],
+      { type: 'application/json' },
+    );
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'pdf-bilingual-settings' + (keepKeys ? '-含key' : '') + '.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    status(keepKeys ? '已导出（含 API key，注意保管）' : '已导出（不含 API key）');
+  };
+
+  $('importBtn').onclick = () => $('importFile').click();
+  $('importFile').onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try {
+      const j = JSON.parse(await f.text());
+      const incoming = j.settings || j;
+      if (!incoming || typeof incoming !== 'object') throw new Error('格式不对');
+      // 导入的空 key 不要覆盖掉现有的
+      const cur = await loadSettings();
+      for (const p of ['anthropic', 'openai']) {
+        if (incoming[p] && !incoming[p].apiKey && cur[p]?.apiKey) {
+          incoming[p].apiKey = cur[p].apiKey;
+        }
+      }
+      settings = await saveSettings(incoming);
+      $('importState').textContent = '✓ 已导入，刷新页面看结果';
+      status('设置已导入');
+    } catch (err) {
+      $('importState').textContent = '✗ ' + (err.message || err);
+    } finally {
+      e.target.value = '';
+    }
+  };
 }
 
 function showPane() {
